@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dash Core → Platform Bridge</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      color: #e0e0e0;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+
+    #app {
+      width: 100%;
+      max-width: 500px;
+    }
+
+    .bridge-container {
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 16px;
+      padding: 32px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* Subtle progress bar at top */
+    .progress-bar {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #008de4, #4CAF50);
+      transition: width 0.3s ease;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 24px;
+    }
+
+    h1 {
+      font-size: 1.5rem;
+      margin-bottom: 8px;
+      color: #fff;
+    }
+
+    .network-badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+
+    .network-badge.testnet {
+      background: #ff9800;
+      color: #000;
+    }
+
+    .network-badge.mainnet {
+      background: #4CAF50;
+      color: #fff;
+    }
+
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 16px;
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: 8px;
+      margin-bottom: 24px;
+    }
+
+    .step-indicator {
+      font-size: 1.5rem;
+    }
+
+    .step-indicator.processing {
+      animation: pulse 1.5s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .step-description {
+      font-weight: 500;
+    }
+
+    .content {
+      min-height: 200px;
+    }
+
+    .init-step {
+      text-align: center;
+    }
+
+    .init-step p {
+      margin-bottom: 16px;
+      color: #b0b0b0;
+    }
+
+    .primary-btn {
+      background: linear-gradient(135deg, #008de4 0%, #0066b3 100%);
+      color: white;
+      border: none;
+      padding: 16px 32px;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .primary-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 20px rgba(0, 141, 228, 0.4);
+    }
+
+    .secondary-btn {
+      background: rgba(255, 255, 255, 0.1);
+      color: white;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      padding: 12px 24px;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .secondary-btn:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    .deposit-step {
+      text-align: center;
+    }
+
+    .deposit-headline {
+      font-size: 1.3rem;
+      color: #fff;
+      margin-bottom: 8px;
+      font-weight: 500;
+    }
+
+    .deposit-headline strong {
+      color: #4CAF50;
+      font-weight: 600;
+    }
+
+    .deposit-reassurance {
+      color: #888;
+      font-size: 0.85rem;
+      margin-bottom: 20px;
+    }
+
+    .qr-section {
+      margin-bottom: 16px;
+    }
+
+    .qr-label {
+      color: #b0b0b0;
+      font-size: 0.85rem;
+      font-weight: 500;
+      margin-bottom: 10px;
+    }
+
+    .qr-container {
+      background: white;
+      padding: 12px;
+      border-radius: 12px;
+      display: inline-block;
+    }
+
+    .qr-container img {
+      display: block;
+    }
+
+    .address-section {
+      margin-bottom: 16px;
+    }
+
+    .address-label {
+      color: #888;
+      font-size: 0.8rem;
+      margin-bottom: 8px;
+    }
+
+    .address-display {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      justify-content: center;
+    }
+
+    .address {
+      background: rgba(0, 0, 0, 0.3);
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-family: 'SF Mono', Monaco, monospace;
+      font-size: 0.8rem;
+      word-break: break-all;
+    }
+
+    .copy-btn {
+      background: transparent;
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      color: #888;
+      padding: 6px 16px;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      cursor: pointer;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+
+    .copy-btn:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: #fff;
+    }
+
+    .backup-note {
+      color: #888;
+      font-size: 0.8rem;
+      margin-top: 20px;
+    }
+
+    .backup-check {
+      color: #4CAF50;
+      font-weight: 600;
+      margin-right: 4px;
+    }
+
+    .processing-step {
+      text-align: center;
+      padding: 40px 0;
+    }
+
+    .spinner {
+      color: #888;
+      font-size: 0.9rem;
+    }
+
+    .spinner.large::before {
+      content: '';
+      display: block;
+      width: 48px;
+      height: 48px;
+      margin: 0 auto 24px;
+      border: 4px solid rgba(255, 255, 255, 0.1);
+      border-top-color: #008de4;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .processing-info {
+      margin-top: 24px;
+    }
+
+    .processing-info code {
+      font-size: 0.8rem;
+      word-break: break-all;
+    }
+
+    .complete-step {
+      text-align: center;
+    }
+
+    .complete-headline {
+      color: #fff;
+      font-size: 1.4rem;
+      margin-bottom: 8px;
+    }
+
+    .complete-subtitle {
+      color: #888;
+      font-size: 0.9rem;
+      margin-bottom: 24px;
+    }
+
+    .backup-section {
+      margin-bottom: 24px;
+    }
+
+    .backup-section .primary-btn {
+      width: 100%;
+      margin-bottom: 12px;
+    }
+
+    .backup-warning {
+      color: #888;
+      font-size: 0.8rem;
+      margin: 0;
+    }
+
+    .identity-info {
+      background: rgba(0, 0, 0, 0.2);
+      padding: 16px;
+      border-radius: 8px;
+    }
+
+    .identity-info label {
+      display: block;
+      font-size: 0.8rem;
+      color: #666;
+      margin-bottom: 6px;
+    }
+
+    .identity-id {
+      display: block;
+      font-family: 'SF Mono', Monaco, monospace;
+      font-size: 0.85rem;
+      word-break: break-all;
+      color: #b0b0b0;
+    }
+
+    .error-step {
+      text-align: center;
+    }
+
+    .error-icon {
+      font-size: 4rem;
+      margin-bottom: 16px;
+    }
+
+    .error-step h2 {
+      color: #f44336;
+      margin-bottom: 16px;
+    }
+
+    .error-message {
+      background: rgba(244, 67, 54, 0.1);
+      border: 1px solid rgba(244, 67, 54, 0.3);
+      padding: 16px;
+      border-radius: 8px;
+      margin-bottom: 24px;
+      font-size: 0.9rem;
+      word-break: break-word;
+    }
+
+    /* Key configuration styles */
+    .keys-section {
+      text-align: left;
+      margin-bottom: 24px;
+    }
+
+    .keys-section h3 {
+      font-size: 1rem;
+      margin-bottom: 12px;
+      color: #fff;
+    }
+
+    .keys-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .key-row {
+      display: flex;
+      align-items: center;
+      background: rgba(0, 0, 0, 0.2);
+      padding: 8px 10px;
+      border-radius: 8px;
+      gap: 6px;
+    }
+
+    .key-name {
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: #e0e0e0;
+      width: 70px;
+      flex-shrink: 0;
+    }
+
+    .key-config {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      flex: 1;
+    }
+
+    .key-config select {
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: #e0e0e0;
+      padding: 5px 4px;
+      border-radius: 4px;
+      font-size: 0.7rem;
+      cursor: pointer;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .key-config select:hover {
+      background: rgba(255, 255, 255, 0.15);
+    }
+
+    .key-config select:focus {
+      outline: none;
+      border-color: #008de4;
+    }
+
+    .remove-key-btn {
+      background: rgba(244, 67, 54, 0.2);
+      border: none;
+      color: #f44336;
+      width: 20px;
+      height: 20px;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s;
+      flex-shrink: 0;
+    }
+
+    .remove-key-btn:hover:not(:disabled) {
+      background: rgba(244, 67, 54, 0.4);
+    }
+
+    .remove-key-btn:disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+    }
+
+    .add-key-btn {
+      width: 100%;
+      background: transparent;
+      border: 2px dashed rgba(255, 255, 255, 0.2);
+      color: #888;
+      padding: 10px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .add-key-btn:hover {
+      border-color: #008de4;
+      color: #008de4;
+      background: rgba(0, 141, 228, 0.1);
+    }
+
+    .intro {
+      margin-bottom: 20px;
+    }
+
+    /* Network selector */
+    .network-selector {
+      display: flex;
+      gap: 8px;
+      justify-content: center;
+      margin-bottom: 24px;
+    }
+
+    .network-btn {
+      flex: 1;
+      max-width: 120px;
+      padding: 10px 16px;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+      border: 2px solid transparent;
+      background: rgba(255, 255, 255, 0.05);
+      color: #888;
+    }
+
+    .network-btn:hover {
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .network-btn.testnet.active {
+      background: rgba(255, 152, 0, 0.15);
+      border-color: #ff9800;
+      color: #ff9800;
+    }
+
+    .network-btn.mainnet.active {
+      background: rgba(0, 141, 228, 0.15);
+      border-color: #008de4;
+      color: #008de4;
+    }
+
+    /* Configure keys step */
+    .configure-keys-step {
+      text-align: left;
+    }
+
+    .keys-reassurance {
+      background: rgba(76, 175, 80, 0.1);
+      border: 1px solid rgba(76, 175, 80, 0.2);
+      border-radius: 8px;
+      padding: 12px 16px;
+      margin-bottom: 16px;
+      text-align: center;
+    }
+
+    .keys-reassurance-text {
+      color: #4CAF50;
+      font-size: 0.85rem;
+      margin: 0;
+    }
+
+    .nav-buttons {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      margin-top: 24px;
+    }
+
+    .nav-buttons .primary-btn,
+    .nav-buttons .secondary-btn {
+      flex: 1;
+      max-width: 150px;
+    }
+
+    /* Recheck section (after timeout) */
+    .recheck-section {
+      text-align: center;
+      margin-top: 16px;
+      padding: 16px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+    }
+
+    .recheck-section p {
+      color: #888;
+      margin-bottom: 12px;
+      font-size: 0.9rem;
+    }
+
+    /* Insufficient deposit styling */
+    .recheck-section.insufficient {
+      background: rgba(255, 152, 0, 0.1);
+      border-color: rgba(255, 152, 0, 0.3);
+    }
+
+    .recheck-section .insufficient-title {
+      color: #ff9800;
+      font-weight: 600;
+      font-size: 1rem;
+      margin-bottom: 4px;
+    }
+
+    .recheck-section .insufficient-msg {
+      color: #b0b0b0;
+      font-size: 0.85rem;
+      margin-bottom: 16px;
+    }
+
+    /* Mnemonic section */
+    .mnemonic-section {
+      background: rgba(255, 152, 0, 0.1);
+      border: 1px solid rgba(255, 152, 0, 0.3);
+      border-radius: 12px;
+      padding: 20px;
+      margin: 20px 0;
+      text-align: center;
+    }
+
+    .mnemonic-header {
+      color: #ff9800;
+      font-size: 1rem;
+      margin-bottom: 8px;
+    }
+
+    .mnemonic-warning {
+      color: #b0b0b0;
+      font-size: 0.8rem;
+      margin-bottom: 16px;
+    }
+
+    .mnemonic-words {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    .mnemonic-word {
+      background: rgba(0, 0, 0, 0.3);
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-family: 'SF Mono', Monaco, monospace;
+      font-size: 0.85rem;
+      color: #fff;
+      text-align: left;
+    }
+
+    .word-num {
+      color: #666;
+      font-size: 0.7rem;
+      margin-right: 6px;
+    }
+
+    .mnemonic-copy {
+      margin-top: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div class="bridge-container">
+      <p style="text-align: center; color: #888;">Loading...</p>
+    </div>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
