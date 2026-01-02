@@ -1,5 +1,6 @@
 import type { BridgeState, KeyType, KeyPurpose, SecurityLevel } from '../types.js';
 import { getStepProgress } from './state.js';
+import { shouldShowContestedWarning, countUsernameStatuses } from '../platform/dpns.js';
 import { generateQRCodeDataUrl } from './qrcode.js';
 import { privateKeyToWif } from '../utils/wif.js';
 import { bytesToHex } from '../utils/hex.js';
@@ -10,6 +11,15 @@ import { getAssetLockDerivationPath } from '../crypto/hd.js';
 const KEY_TYPES: KeyType[] = ['ECDSA_SECP256K1', 'ECDSA_HASH160'];
 const KEY_PURPOSES: KeyPurpose[] = ['AUTHENTICATION', 'TRANSFER', 'VOTING', 'OWNER'];
 const SECURITY_LEVELS: SecurityLevel[] = ['MASTER', 'CRITICAL', 'HIGH', 'MEDIUM'];
+
+/**
+ * Escape HTML special characters to prevent XSS
+ */
+function escapeHtml(str: string): string {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
 
 /**
  * Render the main application UI
@@ -76,6 +86,35 @@ export function render(state: BridgeState, container: HTMLElement): void {
     case 'error':
       content.appendChild(renderErrorStep(state));
       break;
+
+    // DPNS steps
+    case 'dpns_choose_identity':
+      content.appendChild(renderDpnsChooseIdentityStep(state));
+      break;
+
+    case 'dpns_enter_identity':
+      content.appendChild(renderDpnsEnterIdentityStep(state));
+      break;
+
+    case 'dpns_enter_usernames':
+      content.appendChild(renderDpnsEnterUsernamesStep(state));
+      break;
+
+    case 'dpns_checking':
+      content.appendChild(renderDpnsCheckingStep(state));
+      break;
+
+    case 'dpns_review':
+      content.appendChild(renderDpnsReviewStep(state));
+      break;
+
+    case 'dpns_registering':
+      content.appendChild(renderDpnsRegisteringStep(state));
+      break;
+
+    case 'dpns_complete':
+      content.appendChild(renderDpnsCompleteStep(state));
+      break;
   }
 
   wrapper.appendChild(content);
@@ -115,6 +154,10 @@ function renderInitStep(state: BridgeState): HTMLElement {
     <button id="mode-topup-btn" class="mode-btn secondary-btn">
       <span class="mode-label">Top Up Existing Identity</span>
       <span class="mode-desc">Add credits to an identity you already own</span>
+    </button>
+    <button id="mode-dpns-btn" class="mode-btn secondary-btn">
+      <span class="mode-label">Register Username</span>
+      <span class="mode-desc">Get a DPNS username for your identity</span>
     </button>
   `;
   div.appendChild(modeButtons);
@@ -519,6 +562,18 @@ function renderCompleteStep(state: BridgeState): HTMLElement {
     div.appendChild(txInfo);
   }
 
+  // DPNS prompt (only for create mode, not top-up)
+  if (!isTopUp && state.identityId) {
+    const dpnsPrompt = document.createElement('div');
+    dpnsPrompt.className = 'dpns-prompt';
+    dpnsPrompt.innerHTML = `
+      <h3>Get a username?</h3>
+      <p>Register a DPNS username like <code>yourname.dash</code> to make your identity easy to find.</p>
+      <button id="dpns-from-identity-btn" class="primary-btn">Register Username</button>
+    `;
+    div.appendChild(dpnsPrompt);
+  }
+
   // Start over button (for both modes)
   const startOverBtn = document.createElement('button');
   startOverBtn.id = 'retry-btn';
@@ -628,4 +683,531 @@ export function downloadKeyBackup(state: BridgeState): void {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+// ============================================================================
+// DPNS Render Functions
+// ============================================================================
+
+/**
+ * Render DPNS identity source selection step
+ */
+function renderDpnsChooseIdentityStep(_state: BridgeState): HTMLElement {
+  const div = document.createElement('div');
+  div.className = 'dpns-choose-identity-step';
+
+  const headline = document.createElement('h2');
+  headline.className = 'dpns-headline';
+  headline.textContent = 'Register a Username';
+  div.appendChild(headline);
+
+  const subtitle = document.createElement('p');
+  subtitle.className = 'dpns-subtitle';
+  subtitle.textContent = 'DPNS usernames make your identity easy to find and share.';
+  div.appendChild(subtitle);
+
+  const choiceButtons = document.createElement('div');
+  choiceButtons.className = 'dpns-choice-buttons';
+  choiceButtons.innerHTML = `
+    <button id="dpns-choose-new-btn" class="mode-btn primary-btn">
+      <span class="mode-label">Create New Identity First</span>
+      <span class="mode-desc">Generate a new identity, then register usernames</span>
+    </button>
+    <button id="dpns-choose-existing-btn" class="mode-btn secondary-btn">
+      <span class="mode-label">Use Existing Identity</span>
+      <span class="mode-desc">Register usernames for an identity you already have</span>
+    </button>
+  `;
+  div.appendChild(choiceButtons);
+
+  // Back button
+  const navButtons = document.createElement('div');
+  navButtons.className = 'nav-buttons';
+  const backBtn = document.createElement('button');
+  backBtn.id = 'back-btn';
+  backBtn.className = 'secondary-btn';
+  backBtn.textContent = 'Back';
+  navButtons.appendChild(backBtn);
+  div.appendChild(navButtons);
+
+  return div;
+}
+
+/**
+ * Helper to get security level name
+ */
+function getSecurityLevelName(level: number): string {
+  switch (level) {
+    case 0: return 'MASTER';
+    case 1: return 'CRITICAL';
+    case 2: return 'HIGH';
+    case 3: return 'MEDIUM';
+    default: return `UNKNOWN(${level})`;
+  }
+}
+
+/**
+ * Render DPNS existing identity entry step
+ */
+function renderDpnsEnterIdentityStep(state: BridgeState): HTMLElement {
+  const div = document.createElement('div');
+  div.className = 'dpns-enter-identity-step';
+
+  const headline = document.createElement('h2');
+  headline.className = 'dpns-headline';
+  headline.textContent = 'Enter Your Identity';
+  div.appendChild(headline);
+
+  const form = document.createElement('div');
+  form.className = 'dpns-identity-form';
+
+  const isFetching = state.dpnsIdentityFetching === true;
+  const hasFetched = state.dpnsIdentityKeys !== undefined;
+  const hasFetchError = state.dpnsIdentityFetchError !== undefined;
+  const hasValidatedKey = state.dpnsValidatedKeyId !== undefined;
+  const hasKeyError = state.dpnsKeyValidationError !== undefined;
+
+  // Identity status message
+  let identityStatusHtml = '';
+  if (isFetching) {
+    identityStatusHtml = '<p class="identity-status loading">Fetching identity...</p>';
+  } else if (hasFetchError) {
+    identityStatusHtml = `<p class="identity-status error">${escapeHtml(state.dpnsIdentityFetchError!)}</p>`;
+  } else if (hasFetched) {
+    const keyCount = state.dpnsIdentityKeys!.length;
+    identityStatusHtml = `<p class="identity-status success">Identity found with ${keyCount} key${keyCount !== 1 ? 's' : ''}</p>`;
+  }
+
+  // Key validation status message
+  let keyValidationHtml = '';
+  if (hasValidatedKey) {
+    const matchedKey = state.dpnsIdentityKeys?.find(k => k.id === state.dpnsValidatedKeyId);
+    const levelName = matchedKey ? getSecurityLevelName(matchedKey.securityLevel) : 'UNKNOWN';
+    keyValidationHtml = `<p class="key-status success">Key matches key #${state.dpnsValidatedKeyId} (${levelName} level)</p>`;
+  } else if (hasKeyError) {
+    keyValidationHtml = `<p class="key-status error">${escapeHtml(state.dpnsKeyValidationError!)}</p>`;
+  }
+
+  // Always show both input fields
+  form.innerHTML = `
+    <div class="input-group">
+      <label class="input-label">Identity ID</label>
+      <input
+        type="text"
+        id="dpns-identity-id-input"
+        class="dpns-input"
+        placeholder="Your 44-character identity ID..."
+        value="${state.targetIdentityId || ''}"
+        ${isFetching ? 'disabled' : ''}
+      />
+      <p class="input-hint">The Base58 identifier for your identity</p>
+      ${identityStatusHtml}
+    </div>
+
+    <div class="input-group">
+      <label class="input-label">Private Key (WIF)</label>
+      <input
+        type="password"
+        id="dpns-private-key-input"
+        class="dpns-input"
+        placeholder="Your private key in WIF format..."
+        value="${state.dpnsPrivateKeyWif || ''}"
+      />
+      <p class="input-hint">An AUTHENTICATION key with CRITICAL or HIGH security level</p>
+      ${keyValidationHtml}
+    </div>
+  `;
+
+  div.appendChild(form);
+
+  // Validation message placeholder
+  const validationMsg = document.createElement('p');
+  validationMsg.id = 'dpns-validation-msg';
+  validationMsg.className = 'validation-msg hidden';
+  div.appendChild(validationMsg);
+
+  // Navigation buttons
+  const navButtons = document.createElement('div');
+  navButtons.className = 'nav-buttons';
+
+  const backBtn = document.createElement('button');
+  backBtn.id = 'dpns-back-btn';
+  backBtn.className = 'secondary-btn';
+  backBtn.textContent = 'Back';
+  navButtons.appendChild(backBtn);
+
+  // Continue button only enabled when key is validated
+  const continueBtn = document.createElement('button');
+  continueBtn.id = 'dpns-identity-continue-btn';
+  continueBtn.className = 'primary-btn';
+  continueBtn.textContent = 'Continue';
+  if (!hasValidatedKey) {
+    continueBtn.setAttribute('disabled', 'true');
+  }
+  navButtons.appendChild(continueBtn);
+
+  div.appendChild(navButtons);
+
+  return div;
+}
+
+/**
+ * Render DPNS username entry step
+ */
+function renderDpnsEnterUsernamesStep(state: BridgeState): HTMLElement {
+  const div = document.createElement('div');
+  div.className = 'dpns-enter-usernames-step';
+
+  const headline = document.createElement('h2');
+  headline.className = 'dpns-headline';
+  headline.textContent = 'Choose Your Usernames';
+  div.appendChild(headline);
+
+  const subtitle = document.createElement('p');
+  subtitle.className = 'dpns-subtitle';
+  subtitle.textContent = 'Enter the usernames you want to register. You can add multiple.';
+  div.appendChild(subtitle);
+
+  // Username inputs list
+  const usernamesList = document.createElement('div');
+  usernamesList.className = 'dpns-usernames-list';
+
+  const usernames = state.dpnsUsernames || [];
+  usernames.forEach((entry, index) => {
+    const row = document.createElement('div');
+    row.className = 'dpns-username-row';
+    row.dataset.index = String(index);
+
+    const inputWrapper = document.createElement('div');
+    inputWrapper.className = 'dpns-username-input-wrapper';
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = `dpns-username-input ${!entry.isValid && entry.label ? 'invalid' : ''}`;
+    input.placeholder = 'username';
+    input.value = entry.label;
+    input.dataset.index = String(index);
+    inputWrapper.appendChild(input);
+
+    const suffix = document.createElement('span');
+    suffix.className = 'dpns-username-suffix';
+    suffix.textContent = '.dash';
+    inputWrapper.appendChild(suffix);
+
+    row.appendChild(inputWrapper);
+
+    // Status/validation indicator
+    const status = document.createElement('div');
+    status.className = 'dpns-username-status';
+    if (entry.label && !entry.isValid) {
+      status.className += ' error';
+      status.textContent = entry.validationError || 'Invalid';
+    } else if (entry.isContested !== undefined) {
+      status.className += entry.isContested ? ' contested' : ' non-contested';
+      status.textContent = entry.isContested ? 'Contested' : 'Non-contested';
+    }
+    row.appendChild(status);
+
+    // Remove button (if more than one)
+    if (usernames.length > 1) {
+      const removeBtn = document.createElement('button');
+      removeBtn.className = 'remove-dpns-username-btn';
+      removeBtn.dataset.index = String(index);
+      removeBtn.innerHTML = '&times;';
+      row.appendChild(removeBtn);
+    }
+
+    usernamesList.appendChild(row);
+  });
+
+  div.appendChild(usernamesList);
+
+  // Add another username button
+  const addBtn = document.createElement('button');
+  addBtn.id = 'add-dpns-username-btn';
+  addBtn.className = 'add-username-btn';
+  addBtn.textContent = '+ Add Another Username';
+  div.appendChild(addBtn);
+
+  // Info box about contested names
+  const infoBox = document.createElement('div');
+  infoBox.className = 'dpns-info-box';
+  infoBox.innerHTML = `
+    <p><strong>Contested vs Non-Contested:</strong></p>
+    <ul>
+      <li><strong>Contested</strong> (3-19 chars, letters/hyphens only): Requires voting period</li>
+      <li><strong>Non-contested</strong> (20+ chars or contains digits 2-9): Registered immediately</li>
+    </ul>
+  `;
+  div.appendChild(infoBox);
+
+  // Navigation buttons
+  const navButtons = document.createElement('div');
+  navButtons.className = 'nav-buttons';
+
+  const backBtn = document.createElement('button');
+  backBtn.id = 'dpns-back-btn';
+  backBtn.className = 'secondary-btn';
+  backBtn.textContent = 'Back';
+  navButtons.appendChild(backBtn);
+
+  const checkBtn = document.createElement('button');
+  checkBtn.id = 'check-availability-btn';
+  checkBtn.className = 'primary-btn';
+  // Disable if no valid usernames
+  const hasValidUsernames = usernames.some((u) => u.isValid);
+  checkBtn.disabled = !hasValidUsernames;
+  checkBtn.textContent = 'Check Availability';
+  navButtons.appendChild(checkBtn);
+
+  div.appendChild(navButtons);
+
+  return div;
+}
+
+/**
+ * Render DPNS checking availability step
+ */
+function renderDpnsCheckingStep(state: BridgeState): HTMLElement {
+  const div = document.createElement('div');
+  div.className = 'dpns-checking-step';
+
+  const headline = document.createElement('h2');
+  headline.className = 'dpns-headline';
+  headline.textContent = 'Checking Availability';
+  div.appendChild(headline);
+
+  const spinner = document.createElement('div');
+  spinner.className = 'spinner large';
+  div.appendChild(spinner);
+
+  const status = document.createElement('p');
+  status.className = 'dpns-checking-status';
+  const usernames = state.dpnsUsernames || [];
+  const checking = usernames.filter((u) => u.status === 'checking');
+  status.textContent = `Checking ${checking.length} username(s)...`;
+  div.appendChild(status);
+
+  return div;
+}
+
+/**
+ * Render DPNS review step with availability results
+ */
+function renderDpnsReviewStep(state: BridgeState): HTMLElement {
+  const div = document.createElement('div');
+  div.className = 'dpns-review-step';
+
+  const headline = document.createElement('h2');
+  headline.className = 'dpns-headline';
+  headline.textContent = 'Review Usernames';
+  div.appendChild(headline);
+
+  const usernames = state.dpnsUsernames || [];
+  const counts = countUsernameStatuses(usernames);
+  const showWarning = shouldShowContestedWarning(usernames);
+
+  // Results table
+  const resultsTable = document.createElement('div');
+  resultsTable.className = 'dpns-results-table';
+
+  usernames.forEach((entry) => {
+    if (!entry.isValid) return; // Skip invalid entries
+
+    const row = document.createElement('div');
+    row.className = 'dpns-result-row';
+
+    const name = document.createElement('div');
+    name.className = 'dpns-result-name';
+    name.innerHTML = `<code>${entry.label}.dash</code>`;
+    row.appendChild(name);
+
+    const status = document.createElement('div');
+    status.className = 'dpns-result-status';
+
+    if (entry.isAvailable) {
+      status.className += ' available';
+      if (entry.isContested) {
+        status.innerHTML = '<span class="status-icon">&#9679;</span> Available (Contested)';
+      } else {
+        status.innerHTML = '<span class="status-icon">&#10003;</span> Available';
+      }
+    } else {
+      status.className += ' taken';
+      status.innerHTML = '<span class="status-icon">&#10007;</span> Taken';
+    }
+
+    row.appendChild(status);
+    resultsTable.appendChild(row);
+  });
+
+  div.appendChild(resultsTable);
+
+  // Summary
+  const summary = document.createElement('p');
+  summary.className = 'dpns-summary';
+  if (counts.available === 0) {
+    summary.textContent = 'No usernames are available. Go back to try different names.';
+  } else {
+    summary.textContent = `${counts.available} available (${counts.contested} contested, ${counts.nonContested} non-contested), ${counts.taken} taken`;
+  }
+  div.appendChild(summary);
+
+  // Contested warning
+  if (showWarning && !state.dpnsContestedWarningAcknowledged) {
+    const warning = document.createElement('div');
+    warning.className = 'dpns-contested-warning';
+    warning.innerHTML = `
+      <p><strong>Heads up:</strong> All your available usernames are contested.</p>
+      <p>Contested usernames (3-19 characters, only letters/hyphens) require a voting period and may be awarded to someone else if they receive more votes.</p>
+      <p>To guarantee at least one immediate username, add a non-contested name (20+ characters or contains digits 2-9).</p>
+      <button id="add-noncontested-btn" class="secondary-btn">Add Non-Contested Username</button>
+      <div class="dpns-contested-acknowledge">
+        <label>
+          <input type="checkbox" id="dpns-contested-checkbox" />
+          I understand that contested names require voting and may not be awarded to me
+        </label>
+      </div>
+    `;
+    div.appendChild(warning);
+  }
+
+  // Navigation buttons
+  const navButtons = document.createElement('div');
+  navButtons.className = 'nav-buttons';
+
+  const backBtn = document.createElement('button');
+  backBtn.id = 'dpns-back-btn';
+  backBtn.className = 'secondary-btn';
+  backBtn.textContent = 'Back';
+  navButtons.appendChild(backBtn);
+
+  const registerBtn = document.createElement('button');
+  registerBtn.id = 'register-dpns-btn';
+  registerBtn.className = 'primary-btn';
+  registerBtn.textContent = `Register ${counts.available} Username${counts.available !== 1 ? 's' : ''}`;
+  // Disable if no available names or warning not acknowledged
+  registerBtn.disabled = counts.available === 0 || (showWarning && !state.dpnsContestedWarningAcknowledged);
+  navButtons.appendChild(registerBtn);
+
+  div.appendChild(navButtons);
+
+  return div;
+}
+
+/**
+ * Render DPNS registration in progress step
+ */
+function renderDpnsRegisteringStep(state: BridgeState): HTMLElement {
+  const div = document.createElement('div');
+  div.className = 'dpns-registering-step';
+
+  const headline = document.createElement('h2');
+  headline.className = 'dpns-headline';
+  headline.textContent = 'Registering Usernames';
+  div.appendChild(headline);
+
+  const spinner = document.createElement('div');
+  spinner.className = 'spinner large';
+  div.appendChild(spinner);
+
+  const usernames = state.dpnsUsernames || [];
+  const available = usernames.filter((u) => u.isValid && u.isAvailable);
+  const progress = state.dpnsRegistrationProgress || 0;
+
+  const status = document.createElement('p');
+  status.className = 'dpns-registering-status';
+  if (progress < available.length) {
+    status.textContent = `Registering username ${progress + 1} of ${available.length}...`;
+  } else {
+    status.textContent = 'Finalizing registration...';
+  }
+  div.appendChild(status);
+
+  const currentName = document.createElement('p');
+  currentName.className = 'dpns-current-name';
+  if (progress < available.length) {
+    currentName.innerHTML = `<code>${available[progress]?.label}.dash</code>`;
+  }
+  div.appendChild(currentName);
+
+  return div;
+}
+
+/**
+ * Render DPNS registration complete step
+ */
+function renderDpnsCompleteStep(state: BridgeState): HTMLElement {
+  const div = document.createElement('div');
+  div.className = 'dpns-complete-step';
+
+  const headline = document.createElement('h2');
+  headline.className = 'dpns-headline';
+  headline.textContent = 'Registration Complete!';
+  div.appendChild(headline);
+
+  const results = state.dpnsResults || [];
+
+  // Results summary
+  const resultsSection = document.createElement('div');
+  resultsSection.className = 'dpns-complete-results';
+
+  results.forEach((result) => {
+    const row = document.createElement('div');
+    row.className = `dpns-complete-row ${result.success ? 'success' : 'failed'}`;
+
+    const name = document.createElement('div');
+    name.className = 'dpns-complete-name';
+    name.innerHTML = `<code>${result.label}.dash</code>`;
+    row.appendChild(name);
+
+    const status = document.createElement('div');
+    status.className = 'dpns-complete-status';
+    if (result.success) {
+      if (result.isContested) {
+        status.innerHTML = '<span class="status-icon">&#9679;</span> Entered voting period';
+        status.className += ' contested';
+      } else {
+        status.innerHTML = '<span class="status-icon">&#10003;</span> Registered';
+        status.className += ' registered';
+      }
+    } else {
+      status.innerHTML = `<span class="status-icon">&#10007;</span> Failed: ${result.error || 'Unknown error'}`;
+      status.className += ' failed';
+    }
+    row.appendChild(status);
+
+    resultsSection.appendChild(row);
+  });
+
+  div.appendChild(resultsSection);
+
+  // Identity info
+  const identityInfo = document.createElement('div');
+  identityInfo.className = 'identity-info';
+  identityInfo.innerHTML = `
+    <label>Identity ID</label>
+    <code class="identity-id">${state.identityId || state.targetIdentityId || 'Unknown'}</code>
+  `;
+  div.appendChild(identityInfo);
+
+  // Action buttons
+  const actionButtons = document.createElement('div');
+  actionButtons.className = 'dpns-action-buttons';
+
+  const moreBtn = document.createElement('button');
+  moreBtn.id = 'dpns-register-more-btn';
+  moreBtn.className = 'primary-btn';
+  moreBtn.textContent = 'Register More Usernames';
+  actionButtons.appendChild(moreBtn);
+
+  const startOverBtn = document.createElement('button');
+  startOverBtn.id = 'retry-btn';
+  startOverBtn.className = 'secondary-btn';
+  startOverBtn.textContent = 'Start Over';
+  actionButtons.appendChild(startOverBtn);
+
+  div.appendChild(actionButtons);
+
+  return div;
 }

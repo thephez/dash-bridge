@@ -21,6 +21,28 @@ export {
   addIdentityKey,
   removeIdentityKey,
   regenerateAllIdentityKeys,
+  // DPNS state functions
+  setModeDpnsFromIdentity,
+  setDpnsIdentitySource,
+  setDpnsExistingIdentity,
+  addDpnsUsername,
+  updateDpnsUsername,
+  removeDpnsUsername,
+  setDpnsChecking,
+  setDpnsAvailability,
+  acknowledgeDpnsContestedWarning,
+  setDpnsRegistering,
+  setDpnsRegistrationProgress,
+  setDpnsResults,
+  resetDpnsForMore,
+  setDpnsBackToEntry,
+  // DPNS identity validation functions
+  setDpnsIdentityFetching,
+  setDpnsIdentityFetched,
+  setDpnsIdentityFetchError,
+  setDpnsKeyValidated,
+  setDpnsKeyValidationError,
+  clearDpnsKeyValidation,
 } from './state.js';
 
 export { generateQRCodeDataUrl, createQRCodeElement, renderQRCodeToCanvas } from './qrcode.js';

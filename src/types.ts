@@ -64,7 +64,59 @@ export interface IdentityKeyConfig {
 /**
  * Bridge operation mode
  */
-export type BridgeMode = 'create' | 'topup';
+export type BridgeMode = 'create' | 'topup' | 'dpns';
+
+/**
+ * DPNS identity source for standalone mode
+ */
+export type DpnsIdentitySource = 'new' | 'existing';
+
+/**
+ * Status of a DPNS username entry during the flow
+ */
+export type DpnsUsernameStatus = 'pending' | 'checking' | 'available' | 'taken' | 'invalid';
+
+/**
+ * DPNS username entry with validation/availability status
+ */
+export interface DpnsUsernameEntry {
+  /** Raw user input (e.g., "alice") */
+  label: string;
+  /** Homograph-safe version (e.g., "a11ce") */
+  normalizedLabel: string;
+  /** Passes DPNS validation rules */
+  isValid: boolean;
+  /** If invalid, why */
+  validationError?: string;
+  /** null = unchecked, true/false = checked */
+  isAvailable?: boolean;
+  /** 3-19 chars, only [a-z, 0, 1, -] after normalization */
+  isContested?: boolean;
+  /** Current status in the flow */
+  status: DpnsUsernameStatus;
+}
+
+/**
+ * DPNS registration result for a single name
+ */
+export interface DpnsRegistrationResult {
+  label: string;
+  success: boolean;
+  error?: string;
+  /** If contested, voting required */
+  isContested: boolean;
+}
+
+/**
+ * Public key info fetched from an identity on the network
+ */
+export interface IdentityPublicKeyInfo {
+  id: number;
+  type: number;
+  purpose: number;
+  securityLevel: number;
+  data: Uint8Array;
+}
 
 export type BridgeStep =
   | 'init'
@@ -80,7 +132,15 @@ export type BridgeStep =
   | 'registering_identity'
   | 'topping_up'          // Top-up: calling sdk.identities.topUp()
   | 'complete'
-  | 'error';
+  | 'error'
+  // DPNS username registration steps
+  | 'dpns_choose_identity'    // Choose: create new or use existing
+  | 'dpns_enter_identity'     // Enter existing identity ID + private key
+  | 'dpns_enter_usernames'    // Enter username(s)
+  | 'dpns_checking'           // Check availability
+  | 'dpns_review'             // Review with contested warning
+  | 'dpns_registering'        // Registration in progress
+  | 'dpns_complete';          // Done
 
 export interface BridgeState {
   step: BridgeStep;
@@ -109,4 +169,32 @@ export interface BridgeState {
   targetIdentityId?: string;
   /** Whether asset lock key is a one-time random key (for top-up) vs HD-derived */
   isOneTimeKey?: boolean;
+
+  // DPNS username registration fields
+  /** DPNS: usernames to register */
+  dpnsUsernames?: DpnsUsernameEntry[];
+  /** DPNS: registration results */
+  dpnsResults?: DpnsRegistrationResult[];
+  /** DPNS: whether user came from identity creation complete screen */
+  dpnsFromIdentityCreation?: boolean;
+  /** DPNS: identity source for standalone mode */
+  dpnsIdentitySource?: DpnsIdentitySource;
+  /** DPNS: private key WIF for existing identity (user-provided) */
+  dpnsPrivateKeyWif?: string;
+  /** DPNS: public key ID to use for registration */
+  dpnsPublicKeyId?: number;
+  /** DPNS: all contested names warning acknowledged */
+  dpnsContestedWarningAcknowledged?: boolean;
+  /** DPNS: current registration progress (index) */
+  dpnsRegistrationProgress?: number;
+  /** DPNS: fetched identity public keys */
+  dpnsIdentityKeys?: IdentityPublicKeyInfo[];
+  /** DPNS: whether identity is being fetched */
+  dpnsIdentityFetching?: boolean;
+  /** DPNS: error message if identity fetch failed */
+  dpnsIdentityFetchError?: string;
+  /** DPNS: validated key ID (auto-detected from private key) */
+  dpnsValidatedKeyId?: number;
+  /** DPNS: key validation error message */
+  dpnsKeyValidationError?: string;
 }

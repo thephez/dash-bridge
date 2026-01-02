@@ -1,9 +1,9 @@
 import * as secp256k1 from '@noble/secp256k1';
 import { randomBytes } from '@noble/hashes/utils';
-import type { KeyPair, IdentityKeyConfig, KeyType, KeyPurpose, SecurityLevel } from '../types.js';
+import type { KeyPair, IdentityKeyConfig, KeyType, KeyPurpose, SecurityLevel, IdentityPublicKeyInfo } from '../types.js';
 import { hash160 } from './hash.js';
 import { bytesToHex } from '../utils/hex.js';
-import { privateKeyToWif } from '../utils/wif.js';
+import { privateKeyToWif, wifToPrivateKey } from '../utils/wif.js';
 import { getNetwork } from '../config.js';
 import { deriveIdentityKey as deriveIdentityKeyHD } from './hd.js';
 
@@ -213,4 +213,107 @@ export function generateDefaultIdentityKeysHD(
     generateIdentityKeyFromMnemonic(2, 'Critical Auth', 'ECDSA_SECP256K1', 'AUTHENTICATION', 'CRITICAL', network, mnemonic, 2),
     generateIdentityKeyFromMnemonic(3, 'Transfer', 'ECDSA_SECP256K1', 'TRANSFER', 'CRITICAL', network, mnemonic, 3),
   ];
+}
+
+/**
+ * Compare two Uint8Arrays for equality
+ */
+function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
+/**
+ * Find which identity key matches the given private key WIF.
+ * Returns the matching key info including id, securityLevel, and purpose, or null if no match.
+ */
+export function findMatchingKeyIndex(
+  privateKeyWif: string,
+  identityPublicKeys: IdentityPublicKeyInfo[],
+  network: 'testnet' | 'mainnet'
+): { keyId: number; securityLevel: number; purpose: number; publicKey: Uint8Array } | null {
+  // Decode the WIF to get the private key
+  let privateKey: Uint8Array;
+  try {
+    const decoded = wifToPrivateKey(privateKeyWif);
+    privateKey = decoded.privateKey;
+
+    // Validate network prefix
+    const networkConfig = getNetwork(network);
+    if (decoded.prefix !== networkConfig.wifPrefix) {
+      return null; // Network mismatch
+    }
+  } catch {
+    return null; // Invalid WIF format
+  }
+
+  // Derive the public key from the private key
+  const publicKey = getPublicKey(privateKey);
+  const publicKeyHash = hash160(publicKey);
+
+  // Check against each identity key
+  for (const key of identityPublicKeys) {
+    // Key type 0 = ECDSA_SECP256K1 (33-byte compressed public key)
+    // Key type 2 = ECDSA_HASH160 (20-byte hash160)
+    if (key.type === 0) {
+      // Compare full public key
+      if (bytesEqual(publicKey, key.data)) {
+        return { keyId: key.id, securityLevel: key.securityLevel, purpose: key.purpose, publicKey };
+      }
+    } else if (key.type === 2) {
+      // Compare hash160
+      if (bytesEqual(publicKeyHash, key.data)) {
+        return { keyId: key.id, securityLevel: key.securityLevel, purpose: key.purpose, publicKey };
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Get security level name from numeric value
+ */
+export function getSecurityLevelName(level: number): string {
+  switch (level) {
+    case 0: return 'MASTER';
+    case 1: return 'CRITICAL';
+    case 2: return 'HIGH';
+    case 3: return 'MEDIUM';
+    default: return `UNKNOWN(${level})`;
+  }
+}
+
+/**
+ * Check if a security level is allowed for DPNS registration
+ * Only CRITICAL (1) and HIGH (2) are allowed
+ */
+export function isSecurityLevelAllowedForDpns(level: number): boolean {
+  return level === 1 || level === 2;
+}
+
+/**
+ * Get purpose name from numeric value
+ */
+export function getPurposeName(purpose: number): string {
+  switch (purpose) {
+    case 0: return 'AUTHENTICATION';
+    case 1: return 'ENCRYPTION';
+    case 2: return 'DECRYPTION';
+    case 3: return 'TRANSFER';
+    case 4: return 'OWNER';
+    case 5: return 'VOTING';
+    default: return `UNKNOWN(${purpose})`;
+  }
+}
+
+/**
+ * Check if a key purpose is allowed for DPNS registration
+ * Only AUTHENTICATION (0) is allowed
+ */
+export function isPurposeAllowedForDpns(purpose: number): boolean {
+  return purpose === 0;
 }

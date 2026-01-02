@@ -5,12 +5,16 @@ import type {
   KeyPair,
   UTXO,
   IdentityKeyConfig,
+  DpnsUsernameEntry,
+  DpnsRegistrationResult,
+  DpnsIdentitySource,
 } from '../types.js';
 import {
   generateDefaultIdentityKeysHD,
   generateIdentityKeyFromMnemonic,
 } from '../crypto/keys.js';
 import { generateNewMnemonic } from '../crypto/hd.js';
+import { createEmptyUsernameEntry, createUsernameEntry } from '../platform/dpns.js';
 
 /**
  * Create initial bridge state (mode selection)
@@ -62,7 +66,7 @@ export function setMode(state: BridgeState, mode: BridgeMode): BridgeState {
       targetIdentityId: undefined,
       isOneTimeKey: undefined,
     };
-  } else {
+  } else if (mode === 'topup') {
     // Top-up mode: no mnemonic, no identity keys
     return {
       ...state,
@@ -71,6 +75,17 @@ export function setMode(state: BridgeState, mode: BridgeMode): BridgeState {
       mnemonic: undefined,
       identityKeys: [],
       isOneTimeKey: true,
+    };
+  } else {
+    // DPNS mode: go to identity source selection
+    return {
+      ...state,
+      step: 'dpns_choose_identity',
+      mode,
+      dpnsUsernames: [],
+      dpnsResults: undefined,
+      dpnsFromIdentityCreation: false,
+      dpnsContestedWarningAcknowledged: false,
     };
   }
 }
@@ -352,6 +367,14 @@ export function getStepDescription(step: BridgeStep): string {
     topping_up: 'Adding credits...',
     complete: 'Complete',
     error: 'Something went wrong',
+    // DPNS steps
+    dpns_choose_identity: 'Register username',
+    dpns_enter_identity: 'Enter identity',
+    dpns_enter_usernames: 'Choose usernames',
+    dpns_checking: 'Checking availability...',
+    dpns_review: 'Review usernames',
+    dpns_registering: 'Registering...',
+    dpns_complete: 'Registration complete',
   };
   return descriptions[step];
 }
@@ -375,6 +398,14 @@ export function getStepProgress(step: BridgeStep): number {
     topping_up: 90,
     complete: 100,
     error: 0,
+    // DPNS steps
+    dpns_choose_identity: 10,
+    dpns_enter_identity: 20,
+    dpns_enter_usernames: 30,
+    dpns_checking: 50,
+    dpns_review: 60,
+    dpns_registering: 80,
+    dpns_complete: 100,
   };
   return progress[step];
 }
@@ -392,6 +423,298 @@ export function isProcessingStep(step: BridgeStep): boolean {
     'waiting_islock',
     'registering_identity',
     'topping_up',
+    // DPNS processing steps
+    'dpns_checking',
+    'dpns_registering',
   ];
   return processingSteps.includes(step);
+}
+
+// ============================================================================
+// DPNS State Functions
+// ============================================================================
+
+/**
+ * Enter DPNS mode from identity creation complete screen
+ */
+export function setModeDpnsFromIdentity(state: BridgeState): BridgeState {
+  return {
+    ...state,
+    step: 'dpns_enter_usernames',
+    mode: 'dpns',
+    dpnsUsernames: [createEmptyUsernameEntry()],
+    dpnsResults: undefined,
+    dpnsFromIdentityCreation: true,
+    dpnsContestedWarningAcknowledged: false,
+    // identityId is already set from creation flow
+    // Use the first identity key for DPNS registration
+    dpnsPublicKeyId: 0,
+  };
+}
+
+/**
+ * Set DPNS identity source choice
+ */
+export function setDpnsIdentitySource(
+  state: BridgeState,
+  source: DpnsIdentitySource
+): BridgeState {
+  if (source === 'new') {
+    // Go to identity creation, but remember we're coming back to DPNS
+    const mnemonic = generateNewMnemonic(128);
+    return {
+      ...state,
+      step: 'configure_keys',
+      mode: 'create', // Switch to create mode temporarily
+      mnemonic,
+      identityKeys: generateDefaultIdentityKeysHD(state.network, mnemonic),
+      dpnsIdentitySource: source,
+      dpnsFromIdentityCreation: true, // Will return to DPNS after creation
+    };
+  }
+
+  return {
+    ...state,
+    step: 'dpns_enter_identity',
+    dpnsIdentitySource: source,
+  };
+}
+
+/**
+ * Set existing identity for DPNS registration
+ */
+export function setDpnsExistingIdentity(
+  state: BridgeState,
+  identityId: string,
+  privateKeyWif: string,
+  publicKeyId: number = 0
+): BridgeState {
+  return {
+    ...state,
+    step: 'dpns_enter_usernames',
+    targetIdentityId: identityId,
+    identityId: identityId,
+    dpnsPrivateKeyWif: privateKeyWif,
+    dpnsPublicKeyId: publicKeyId,
+    dpnsUsernames: [createEmptyUsernameEntry()],
+  };
+}
+
+/**
+ * Start fetching identity for DPNS validation
+ */
+export function setDpnsIdentityFetching(state: BridgeState, identityId: string): BridgeState {
+  return {
+    ...state,
+    targetIdentityId: identityId,
+    dpnsIdentityFetching: true,
+    dpnsIdentityFetchError: undefined,
+    dpnsIdentityKeys: undefined,
+    dpnsValidatedKeyId: undefined,
+    dpnsKeyValidationError: undefined,
+  };
+}
+
+/**
+ * Identity fetch succeeded with keys
+ */
+export function setDpnsIdentityFetched(
+  state: BridgeState,
+  keys: import('../types.js').IdentityPublicKeyInfo[]
+): BridgeState {
+  return {
+    ...state,
+    dpnsIdentityFetching: false,
+    dpnsIdentityFetchError: undefined,
+    dpnsIdentityKeys: keys,
+  };
+}
+
+/**
+ * Identity fetch failed
+ */
+export function setDpnsIdentityFetchError(state: BridgeState, error: string): BridgeState {
+  return {
+    ...state,
+    dpnsIdentityFetching: false,
+    dpnsIdentityFetchError: error,
+    dpnsIdentityKeys: undefined,
+  };
+}
+
+/**
+ * Key validation succeeded
+ */
+export function setDpnsKeyValidated(
+  state: BridgeState,
+  keyId: number,
+  privateKeyWif: string
+): BridgeState {
+  return {
+    ...state,
+    dpnsValidatedKeyId: keyId,
+    dpnsPublicKeyId: keyId,
+    dpnsPrivateKeyWif: privateKeyWif,
+    dpnsKeyValidationError: undefined,
+  };
+}
+
+/**
+ * Key validation failed
+ */
+export function setDpnsKeyValidationError(state: BridgeState, error: string): BridgeState {
+  return {
+    ...state,
+    dpnsValidatedKeyId: undefined,
+    dpnsKeyValidationError: error,
+  };
+}
+
+/**
+ * Clear DPNS key validation state (when private key input changes)
+ */
+export function clearDpnsKeyValidation(state: BridgeState): BridgeState {
+  return {
+    ...state,
+    dpnsValidatedKeyId: undefined,
+    dpnsKeyValidationError: undefined,
+    dpnsPrivateKeyWif: undefined,
+  };
+}
+
+/**
+ * Add a username to the DPNS list
+ */
+export function addDpnsUsername(state: BridgeState): BridgeState {
+  return {
+    ...state,
+    dpnsUsernames: [...(state.dpnsUsernames || []), createEmptyUsernameEntry()],
+  };
+}
+
+/**
+ * Update a username in the DPNS list
+ */
+export function updateDpnsUsername(
+  state: BridgeState,
+  index: number,
+  label: string
+): BridgeState {
+  const usernames = [...(state.dpnsUsernames || [])];
+  usernames[index] = createUsernameEntry(label);
+  return { ...state, dpnsUsernames: usernames };
+}
+
+/**
+ * Remove a username from the DPNS list
+ */
+export function removeDpnsUsername(state: BridgeState, index: number): BridgeState {
+  const usernames = (state.dpnsUsernames || []).filter((_, i) => i !== index);
+  return {
+    ...state,
+    dpnsUsernames: usernames.length > 0 ? usernames : [createEmptyUsernameEntry()],
+  };
+}
+
+/**
+ * Set step to checking availability
+ */
+export function setDpnsChecking(state: BridgeState): BridgeState {
+  // Mark all valid usernames as checking
+  const usernames = (state.dpnsUsernames || []).map((u) => ({
+    ...u,
+    status: u.isValid ? 'checking' as const : u.status,
+  }));
+
+  return {
+    ...state,
+    step: 'dpns_checking',
+    dpnsUsernames: usernames,
+  };
+}
+
+/**
+ * Set username availability check results
+ */
+export function setDpnsAvailability(
+  state: BridgeState,
+  results: DpnsUsernameEntry[]
+): BridgeState {
+  return {
+    ...state,
+    step: 'dpns_review',
+    dpnsUsernames: results,
+  };
+}
+
+/**
+ * Acknowledge contested names warning
+ */
+export function acknowledgeDpnsContestedWarning(state: BridgeState): BridgeState {
+  return {
+    ...state,
+    dpnsContestedWarningAcknowledged: true,
+  };
+}
+
+/**
+ * Set DPNS registration in progress
+ */
+export function setDpnsRegistering(state: BridgeState): BridgeState {
+  return {
+    ...state,
+    step: 'dpns_registering',
+    dpnsRegistrationProgress: 0,
+  };
+}
+
+/**
+ * Update DPNS registration progress
+ */
+export function setDpnsRegistrationProgress(
+  state: BridgeState,
+  progress: number
+): BridgeState {
+  return {
+    ...state,
+    dpnsRegistrationProgress: progress,
+  };
+}
+
+/**
+ * Set DPNS registration results
+ */
+export function setDpnsResults(
+  state: BridgeState,
+  results: DpnsRegistrationResult[]
+): BridgeState {
+  return {
+    ...state,
+    step: 'dpns_complete',
+    dpnsResults: results,
+  };
+}
+
+/**
+ * Reset DPNS state for registering more names
+ */
+export function resetDpnsForMore(state: BridgeState): BridgeState {
+  return {
+    ...state,
+    step: 'dpns_enter_usernames',
+    dpnsUsernames: [createEmptyUsernameEntry()],
+    dpnsResults: undefined,
+    dpnsContestedWarningAcknowledged: false,
+    dpnsRegistrationProgress: undefined,
+  };
+}
+
+/**
+ * Go back to DPNS username entry from review
+ */
+export function setDpnsBackToEntry(state: BridgeState): BridgeState {
+  return {
+    ...state,
+    step: 'dpns_enter_usernames',
+  };
 }
