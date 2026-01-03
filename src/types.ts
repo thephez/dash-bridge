@@ -64,7 +64,7 @@ export interface IdentityKeyConfig {
 /**
  * Bridge operation mode
  */
-export type BridgeMode = 'create' | 'topup' | 'dpns';
+export type BridgeMode = 'create' | 'topup' | 'dpns' | 'manage';
 
 /**
  * DPNS identity source for standalone mode
@@ -116,6 +116,31 @@ export interface IdentityPublicKeyInfo {
   purpose: number;
   securityLevel: number;
   data: Uint8Array;
+  /** Whether the key is disabled */
+  isDisabled?: boolean;
+}
+
+/**
+ * Configuration for a new key to add during identity update
+ */
+export interface ManageNewKeyConfig {
+  /** Temporary ID for UI tracking (not the final on-chain ID) */
+  tempId: string;
+  keyType: KeyType;
+  purpose: KeyPurpose;
+  securityLevel: SecurityLevel;
+  /** 'generate' = create new random key, 'import' = user provides public key */
+  source: 'generate' | 'import';
+  /** For generated keys: the generated key data */
+  generatedKey?: {
+    privateKey: Uint8Array;
+    publicKey: Uint8Array;
+    privateKeyHex: string;
+    privateKeyWif: string;
+    publicKeyHex: string;
+  };
+  /** For imported keys: base64-encoded public key data */
+  importedPublicKeyBase64?: string;
 }
 
 export type BridgeStep =
@@ -140,13 +165,34 @@ export type BridgeStep =
   | 'dpns_checking'           // Check availability
   | 'dpns_review'             // Review with contested warning
   | 'dpns_registering'        // Registration in progress
-  | 'dpns_complete';          // Done
+  | 'dpns_complete'           // Done
+  // Identity Management steps
+  | 'manage_enter_identity'   // Enter identity ID + private key WIF
+  | 'manage_view_keys'        // Display current keys, configure changes
+  | 'manage_updating'         // Update transition in progress
+  | 'manage_complete';        // Update complete
+
+/**
+ * Status of network retry attempts
+ */
+export interface RetryStatus {
+  /** Whether a retry is currently in progress */
+  isRetrying: boolean;
+  /** Current retry attempt number (1-indexed) */
+  attempt: number;
+  /** Maximum number of retry attempts */
+  maxAttempts: number;
+  /** Error message from the last failed attempt */
+  lastError?: string;
+}
 
 export interface BridgeState {
   step: BridgeStep;
   network: 'testnet' | 'mainnet';
   /** Bridge operation mode */
   mode: BridgeMode;
+  /** Current network retry status (for displaying retry indicator) */
+  retryStatus?: RetryStatus;
   /** BIP39 mnemonic (12 words) for HD key derivation */
   mnemonic?: string;
   assetLockKeyPair?: KeyPair;
@@ -197,4 +243,24 @@ export interface BridgeState {
   dpnsValidatedKeyId?: number;
   /** DPNS: key validation error message */
   dpnsKeyValidationError?: string;
+
+  // Identity Management fields
+  /** Manage: keys to add during update operation */
+  manageKeysToAdd?: ManageNewKeyConfig[];
+  /** Manage: key IDs to disable during update operation */
+  manageKeyIdsToDisable?: number[];
+  /** Manage: private key WIF for signing update transition */
+  managePrivateKeyWif?: string;
+  /** Manage: validated signing key info */
+  manageSigningKeyInfo?: { keyId: number; securityLevel: number };
+  /** Manage: identity fetching state */
+  manageIdentityFetching?: boolean;
+  /** Manage: identity fetch error */
+  manageIdentityFetchError?: string;
+  /** Manage: fetched identity keys */
+  manageIdentityKeys?: IdentityPublicKeyInfo[];
+  /** Manage: update result */
+  manageUpdateResult?: { success: boolean; error?: string };
+  /** Manage: key validation error message */
+  manageKeyValidationError?: string;
 }

@@ -43,6 +43,22 @@ export {
   setDpnsKeyValidated,
   setDpnsKeyValidationError,
   clearDpnsKeyValidation,
+  // Identity Management state functions
+  setManageIdentityFetching,
+  setManageIdentityFetched,
+  setManageIdentityFetchError,
+  setManageKeyValidated,
+  setManageKeyValidationError,
+  clearManageKeyValidation,
+  addManageNewKey,
+  removeManageNewKey,
+  updateManageNewKey,
+  toggleManageDisableKey,
+  setManageUpdating,
+  setManageComplete,
+  resetManageState,
+  resetManageStateAndRefresh,
+  setManageBackToEntry,
 } from './state.js';
 
 export { generateQRCodeDataUrl, createQRCodeElement, renderQRCodeToCanvas } from './qrcode.js';

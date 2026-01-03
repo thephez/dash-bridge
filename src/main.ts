@@ -5,7 +5,7 @@ import { createAssetLockTransaction, serializeTransaction } from './transaction/
 import { InsightClient } from './api/insight.js';
 import { DAPIClient } from './api/dapi.js';
 import { buildInstantAssetLockProof } from './proof/index.js';
-import { registerIdentity, topUpIdentity } from './platform/index.js';
+import { registerIdentity, topUpIdentity, updateIdentity, AddKeyConfig } from './platform/index.js';
 import { privateKeyToWif, bytesToHex } from './utils/index.js';
 import {
   createInitialState,
@@ -50,6 +50,22 @@ import {
   setDpnsKeyValidated,
   setDpnsKeyValidationError,
   clearDpnsKeyValidation,
+  // Identity Management state functions
+  setManageIdentityFetching,
+  setManageIdentityFetched,
+  setManageIdentityFetchError,
+  setManageKeyValidated,
+  setManageKeyValidationError,
+  clearManageKeyValidation,
+  addManageNewKey,
+  removeManageNewKey,
+  updateManageNewKey,
+  toggleManageDisableKey,
+  setManageUpdating,
+  setManageComplete,
+  resetManageState,
+  resetManageStateAndRefresh,
+  setManageBackToEntry,
 } from './ui/index.js';
 import {
   checkMultipleAvailability,
@@ -62,8 +78,9 @@ import {
   isPurposeAllowedForDpns,
   getSecurityLevelName,
   getPurposeName,
+  generateIdentityKey,
 } from './crypto/keys.js';
-import type { KeyType, KeyPurpose, SecurityLevel } from './types.js';
+import type { KeyType, KeyPurpose, SecurityLevel, ManageNewKeyConfig } from './types.js';
 import type { BridgeState } from './types.js';
 
 // Global state
@@ -569,6 +586,300 @@ function setupEventListeners(container: HTMLElement) {
       updateState(resetDpnsForMore(state));
     });
   }
+
+  // ============================================================================
+  // Identity Management Event Listeners
+  // ============================================================================
+
+  // Manage mode button (init page)
+  const modeManageBtn = container.querySelector('#mode-manage-btn');
+  if (modeManageBtn) {
+    modeManageBtn.addEventListener('click', () => {
+      updateState(setMode(state, 'manage'));
+    });
+  }
+
+  // Manage back button (various steps)
+  const manageBackBtn = container.querySelector('#manage-back-btn');
+  if (manageBackBtn) {
+    manageBackBtn.addEventListener('click', () => {
+      switch (state.step) {
+        case 'manage_enter_identity':
+          updateState(setStep(state, 'init'));
+          break;
+        case 'manage_view_keys':
+          updateState(setManageBackToEntry(state));
+          break;
+        case 'manage_complete':
+          // Go back to init
+          updateState(setStep(state, 'init'));
+          break;
+        default:
+          updateState(setStep(state, 'init'));
+      }
+    });
+  }
+
+  // Manage identity ID input - fetch on blur or paste
+  const manageIdentityIdInput = container.querySelector('#manage-identity-id-input');
+  if (manageIdentityIdInput) {
+    const fetchIdentity = async () => {
+      const input = manageIdentityIdInput as HTMLInputElement;
+      const identityId = input.value.trim();
+
+      // Skip if empty
+      if (!identityId) {
+        return;
+      }
+
+      // Skip if already fetching or already fetched this identity
+      if (state.manageIdentityFetching || (state.targetIdentityId === identityId && state.manageIdentityKeys)) {
+        return;
+      }
+
+      if (!validateIdentityId(identityId)) {
+        updateState(setManageIdentityFetchError(state, 'Invalid identity ID format (expected 44 character Base58 string)'));
+        return;
+      }
+
+      // Start fetching
+      updateState(setManageIdentityFetching(state, identityId));
+
+      try {
+        const keys = await getIdentityPublicKeys(identityId, state.network);
+        updateState(setManageIdentityFetched(state, keys));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to fetch identity';
+        updateState(setManageIdentityFetchError(state, message));
+      }
+    };
+
+    manageIdentityIdInput.addEventListener('blur', fetchIdentity);
+    manageIdentityIdInput.addEventListener('paste', () => {
+      setTimeout(fetchIdentity, 50);
+    });
+  }
+
+  // Manage private key input - validate on blur or paste
+  const managePrivateKeyInput = container.querySelector('#manage-private-key-input');
+  if (managePrivateKeyInput) {
+    const validatePrivateKey = async () => {
+      const input = managePrivateKeyInput as HTMLInputElement;
+      const privateKeyWif = input.value.trim();
+
+      // Clear previous validation if empty
+      if (!privateKeyWif) {
+        updateState(clearManageKeyValidation(state));
+        return;
+      }
+
+      // Wait for identity fetch to complete if in progress
+      const waitForIdentity = (): Promise<void> => {
+        return new Promise((resolve) => {
+          const check = () => {
+            if (!state.manageIdentityFetching) {
+              resolve();
+            } else {
+              setTimeout(check, 100);
+            }
+          };
+          check();
+        });
+      };
+
+      if (state.manageIdentityFetching) {
+        await waitForIdentity();
+      }
+
+      // Check if identity was fetched successfully
+      if (!state.manageIdentityKeys || state.manageIdentityKeys.length === 0) {
+        if (state.manageIdentityFetchError) {
+          return;
+        }
+        updateState(setManageKeyValidationError(state, 'Please enter an identity ID first'));
+        return;
+      }
+
+      // Find matching key
+      const match = findMatchingKeyIndex(privateKeyWif, state.manageIdentityKeys, state.network);
+
+      if (!match) {
+        updateState(setManageKeyValidationError(state, 'This key does not match any key registered with this identity'));
+        return;
+      }
+
+      // Check security level (must be MASTER=0 for identity updates)
+      if (match.securityLevel !== 0) {
+        const levelName = getSecurityLevelName(match.securityLevel);
+        updateState(setManageKeyValidationError(
+          state,
+          `This key has ${levelName} security level. Only MASTER level keys can add or disable keys.`
+        ));
+        return;
+      }
+
+      // Key is valid
+      updateState(setManageKeyValidated(state, match.keyId, match.securityLevel, privateKeyWif));
+    };
+
+    managePrivateKeyInput.addEventListener('blur', validatePrivateKey);
+    managePrivateKeyInput.addEventListener('paste', () => {
+      setTimeout(validatePrivateKey, 50);
+    });
+  }
+
+  // Manage identity continue button
+  const manageIdentityContinueBtn = container.querySelector('#manage-identity-continue-btn');
+  if (manageIdentityContinueBtn) {
+    manageIdentityContinueBtn.addEventListener('click', () => {
+      // Just proceed if we have validated key - setManageKeyValidated already transitions
+      // This button is only enabled when validation is complete
+    });
+  }
+
+  // Manage add new key button
+  const addManageKeyBtn = container.querySelector('#add-manage-key-btn');
+  if (addManageKeyBtn) {
+    addManageKeyBtn.addEventListener('click', () => {
+      const tempId = `new-${Date.now()}`;
+      const generated = generateIdentityKey(
+        0, // temporary id
+        'New Key',
+        'ECDSA_SECP256K1',
+        'AUTHENTICATION',
+        'HIGH',
+        state.network
+      );
+
+      const newKeyConfig: ManageNewKeyConfig = {
+        tempId,
+        keyType: 'ECDSA_SECP256K1',
+        purpose: 'AUTHENTICATION',
+        securityLevel: 'HIGH',
+        source: 'generate',
+        generatedKey: {
+          privateKey: generated.privateKey,
+          publicKey: generated.publicKey,
+          privateKeyHex: generated.privateKeyHex,
+          privateKeyWif: generated.privateKeyWif,
+          publicKeyHex: generated.publicKeyHex,
+        },
+      };
+
+      updateState(addManageNewKey(state, newKeyConfig));
+    });
+  }
+
+  // Manage remove new key buttons
+  container.querySelectorAll('.remove-manage-new-key-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const tempId = (btn as HTMLElement).dataset.tempId;
+      if (tempId) {
+        updateState(removeManageNewKey(state, tempId));
+      }
+    });
+  });
+
+  // Manage disable key checkboxes
+  container.querySelectorAll('.manage-disable-key-checkbox').forEach((checkbox) => {
+    checkbox.addEventListener('change', () => {
+      const keyId = parseInt((checkbox as HTMLElement).dataset.keyId || '0', 10);
+      updateState(toggleManageDisableKey(state, keyId));
+    });
+  });
+
+  // Manage key type selects
+  container.querySelectorAll('.manage-key-type-select').forEach((select) => {
+    select.addEventListener('change', (e) => {
+      const target = e.target as HTMLSelectElement;
+      const tempId = target.dataset.tempId;
+      if (tempId) {
+        // Regenerate key when type changes
+        const newType = target.value as KeyType;
+        const existingKey = state.manageKeysToAdd?.find(k => k.tempId === tempId);
+        if (existingKey) {
+          const generated = generateIdentityKey(
+            0,
+            'New Key',
+            newType,
+            existingKey.purpose,
+            existingKey.securityLevel,
+            state.network
+          );
+          updateState(updateManageNewKey(state, tempId, {
+            keyType: newType,
+            generatedKey: {
+              privateKey: generated.privateKey,
+              publicKey: generated.publicKey,
+              privateKeyHex: generated.privateKeyHex,
+              privateKeyWif: generated.privateKeyWif,
+              publicKeyHex: generated.publicKeyHex,
+            },
+          }));
+        }
+      }
+    });
+  });
+
+  // Manage key purpose selects
+  container.querySelectorAll('.manage-key-purpose-select').forEach((select) => {
+    select.addEventListener('change', (e) => {
+      const target = e.target as HTMLSelectElement;
+      const tempId = target.dataset.tempId;
+      if (tempId) {
+        updateState(updateManageNewKey(state, tempId, { purpose: target.value as KeyPurpose }));
+      }
+    });
+  });
+
+  // Manage key security level selects
+  container.querySelectorAll('.manage-key-security-select').forEach((select) => {
+    select.addEventListener('change', (e) => {
+      const target = e.target as HTMLSelectElement;
+      const tempId = target.dataset.tempId;
+      if (tempId) {
+        updateState(updateManageNewKey(state, tempId, { securityLevel: target.value as SecurityLevel }));
+      }
+    });
+  });
+
+  // Apply manage changes button
+  const applyManageBtn = container.querySelector('#apply-manage-btn');
+  if (applyManageBtn) {
+    applyManageBtn.addEventListener('click', startManageUpdate);
+  }
+
+  // Manage more changes button - refetch keys to show updated state
+  const manageMoreBtn = container.querySelector('#manage-more-btn');
+  if (manageMoreBtn) {
+    manageMoreBtn.addEventListener('click', async () => {
+      // Capture the intermediate state to use after async operation
+      const refreshedState = resetManageStateAndRefresh(state);
+      updateState(refreshedState);
+
+      // Refetch identity keys from the network
+      const targetId = refreshedState.targetIdentityId;
+      if (targetId) {
+        try {
+          const keys = await getIdentityPublicKeys(targetId, refreshedState.network);
+          updateState(setManageIdentityFetched(refreshedState, keys));
+        } catch (error) {
+          // If refetch fails, show error in UI
+          console.error('Failed to refetch identity keys:', error);
+          const errorMsg = error instanceof Error ? error.message : 'Failed to refresh keys';
+          updateState(setManageIdentityFetchError(refreshedState, errorMsg));
+        }
+      }
+    });
+  }
+
+  // Manage retry button
+  const manageRetryBtn = container.querySelector('#manage-retry-btn');
+  if (manageRetryBtn) {
+    manageRetryBtn.addEventListener('click', () => {
+      updateState(resetManageState(state));
+    });
+  }
 }
 
 /**
@@ -994,6 +1305,71 @@ async function startDpnsRegistration() {
   } catch (error) {
     console.error('DPNS registration error:', error);
     updateState(setError(state, error instanceof Error ? error : new Error(String(error))));
+  }
+}
+
+// ============================================================================
+// Identity Management Functions
+// ============================================================================
+
+/**
+ * Execute the identity update operation
+ */
+async function startManageUpdate() {
+  try {
+    updateState(setManageUpdating(state));
+
+    // Prepare keys to add
+    const addPublicKeys: AddKeyConfig[] = (state.manageKeysToAdd || []).map(key => ({
+      keyType: key.keyType,
+      purpose: key.purpose,
+      securityLevel: key.securityLevel,
+      privateKeyHex: key.source === 'generate' ? key.generatedKey?.privateKeyHex : undefined,
+      publicKeyHex: key.source === 'generate' ? key.generatedKey?.publicKeyHex : undefined,
+      publicKeyBase64: key.source === 'import' ? key.importedPublicKeyBase64 : undefined,
+    }));
+
+    // Get key IDs to disable
+    const disablePublicKeyIds = state.manageKeyIdsToDisable || [];
+
+    // Validate we have something to do
+    if (addPublicKeys.length === 0 && disablePublicKeyIds.length === 0) {
+      updateState(setManageComplete(state, { success: false, error: 'No changes to apply' }));
+      return;
+    }
+
+    // Validate we have required data
+    if (!state.targetIdentityId) {
+      updateState(setManageComplete(state, { success: false, error: 'No identity ID' }));
+      return;
+    }
+
+    if (!state.managePrivateKeyWif) {
+      updateState(setManageComplete(state, { success: false, error: 'No signing key' }));
+      return;
+    }
+
+    // Execute update
+    const result = await updateIdentity(
+      state.targetIdentityId,
+      state.managePrivateKeyWif,
+      addPublicKeys,
+      disablePublicKeyIds,
+      state.network
+    );
+
+    updateState(setManageComplete(state, result));
+
+  } catch (error) {
+    console.error('Identity update error:', error);
+    // WasmSdkError is not a standard Error, so check for message property
+    const errorMessage = (error && typeof error === 'object' && 'message' in error)
+      ? String((error as { message: unknown }).message)
+      : (error instanceof Error ? error.message : String(error));
+    updateState(setManageComplete(state, {
+      success: false,
+      error: errorMessage,
+    }));
   }
 }
 

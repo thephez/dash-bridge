@@ -9,4 +9,7 @@ export {
   publicKeyToBase64,
   registerIdentity,
   topUpIdentity,
+  updateIdentity,
 } from './identity.js';
+
+export type { AddKeyConfig } from './identity.js';

@@ -1,24 +1,29 @@
 import { EvoSDK } from '@dashevo/evo-sdk';
 import type { DpnsUsernameEntry, DpnsRegistrationResult, IdentityPublicKeyInfo } from '../types.js';
+import { withRetry, type RetryOptions } from '../utils/retry.js';
 
 /**
  * Fetch an identity's public keys from the network
  */
 export async function getIdentityPublicKeys(
   identityId: string,
-  network: 'testnet' | 'mainnet'
+  network: 'testnet' | 'mainnet',
+  retryOptions?: RetryOptions
 ): Promise<IdentityPublicKeyInfo[]> {
   const sdk = network === 'mainnet' ? EvoSDK.mainnetTrusted() : EvoSDK.testnetTrusted();
 
   console.log(`Connecting to ${network} to fetch identity ${identityId}...`);
-  await sdk.connect();
+  await withRetry(() => sdk.connect(), retryOptions);
 
   try {
-    // Use getKeys to fetch all public keys for the identity
-    const keysResponse = await sdk.identities.getKeys({
-      identityId,
-      keyRequestType: 'all',
-    });
+    // Use getKeys to fetch all public keys for the identity (with retry)
+    const keysResponse = await withRetry(
+      () => sdk.identities.getKeys({
+        identityId,
+        request: { type: 'all' },
+      }),
+      retryOptions
+    );
 
     console.log('Keys response:', keysResponse);
 
@@ -39,11 +44,11 @@ export async function getIdentityPublicKeys(
     for (const key of keysArray) {
       console.log('Processing key:', key);
 
-      // Handle SDK response format: keyId, keyType, publicKeyData, purpose, securityLevel
-      const id = key.keyId ?? key.id ?? 0;
+      // SDK v3 response format: keyId, keyType, publicKeyData, purpose, securityLevel
+      const id = key.keyId;
 
       // Convert keyType string to number
-      const typeStr = key.keyType ?? key.type ?? 'ECDSA_SECP256K1';
+      const typeStr = key.keyType ?? 'ECDSA_SECP256K1';
       const type = typeStr === 'ECDSA_SECP256K1' ? 0 : typeStr === 'ECDSA_HASH160' ? 2 : 0;
 
       // Convert purpose string to number
@@ -61,27 +66,23 @@ export async function getIdentityPublicKeys(
       };
       const securityLevel = levelMap[levelStr] ?? 0;
 
-      // Get public key data - SDK returns it as publicKeyData (hex string)
-      const rawData = key.publicKeyData ?? key.data;
+      // Get public key data - SDK v3 returns it as publicKeyData (hex string)
+      const rawData = key.publicKeyData;
 
-      // Convert data to Uint8Array safely
+      // Convert hex string to Uint8Array
       let data: Uint8Array;
-      if (rawData instanceof Uint8Array) {
-        data = rawData;
+      if (typeof rawData === 'string' && /^[0-9a-fA-F]+$/.test(rawData)) {
+        data = new Uint8Array(rawData.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16)));
       } else if (typeof rawData === 'string') {
-        // Hex encoded public key
-        if (/^[0-9a-fA-F]+$/.test(rawData)) {
-          data = new Uint8Array(rawData.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16)));
-        } else {
-          // Try base64
-          data = new Uint8Array(atob(rawData).split('').map(c => c.charCodeAt(0)));
-        }
-      } else if (rawData && typeof rawData === 'object') {
-        data = new Uint8Array(Object.values(rawData));
+        // Try base64
+        data = new Uint8Array(atob(rawData).split('').map(c => c.charCodeAt(0)));
       } else {
         console.warn('Unexpected key data format:', rawData);
         data = new Uint8Array(0);
       }
+
+      // Get disabled status (SDK uses 'disabled' boolean field)
+      const isDisabled = key.disabled;
 
       result.push({
         id,
@@ -89,6 +90,7 @@ export async function getIdentityPublicKeys(
         purpose,
         securityLevel,
         data,
+        isDisabled,
       });
     }
 
@@ -209,16 +211,20 @@ export function createEmptyUsernameEntry(): DpnsUsernameEntry {
  */
 export async function checkUsernameAvailability(
   label: string,
-  network: 'testnet' | 'mainnet'
+  network: 'testnet' | 'mainnet',
+  retryOptions?: RetryOptions
 ): Promise<boolean> {
   // Must use trusted mode for WASM SDK
   const sdk = network === 'mainnet' ? EvoSDK.mainnetTrusted() : EvoSDK.testnetTrusted();
 
   console.log(`Connecting to ${network} to check username availability...`);
-  await sdk.connect();
+  await withRetry(() => sdk.connect(), retryOptions);
 
   try {
-    const isAvailable = await sdk.dpns.isNameAvailable(label);
+    const isAvailable = await withRetry(
+      () => sdk.dpns.isNameAvailable(label),
+      retryOptions
+    );
     return isAvailable;
   } finally {
     // SDK doesn't need explicit cleanup
@@ -230,13 +236,14 @@ export async function checkUsernameAvailability(
  */
 export async function checkMultipleAvailability(
   entries: DpnsUsernameEntry[],
-  network: 'testnet' | 'mainnet'
+  network: 'testnet' | 'mainnet',
+  retryOptions?: RetryOptions
 ): Promise<DpnsUsernameEntry[]> {
   // Must use trusted mode for WASM SDK
   const sdk = network === 'mainnet' ? EvoSDK.mainnetTrusted() : EvoSDK.testnetTrusted();
 
   console.log(`Connecting to ${network} to check ${entries.length} username(s)...`);
-  await sdk.connect();
+  await withRetry(() => sdk.connect(), retryOptions);
 
   const results: DpnsUsernameEntry[] = [];
 
@@ -249,7 +256,10 @@ export async function checkMultipleAvailability(
 
     try {
       console.log(`Checking availability of "${entry.label}"...`);
-      const isAvailable = await sdk.dpns.isNameAvailable(entry.label);
+      const isAvailable = await withRetry(
+        () => sdk.dpns.isNameAvailable(entry.label),
+        retryOptions
+      );
 
       results.push({
         ...entry,
@@ -280,7 +290,8 @@ export async function registerDpnsName(
   publicKeyId: number,
   privateKeyWif: string,
   network: 'testnet' | 'mainnet',
-  onPreorder?: () => void
+  onPreorder?: () => void,
+  retryOptions?: RetryOptions
 ): Promise<{ success: boolean; isContested: boolean; error?: string }> {
   // Use trusted mode for registration (requires identity fetch)
   const sdk = network === 'mainnet'
@@ -288,18 +299,21 @@ export async function registerDpnsName(
     : EvoSDK.testnetTrusted();
 
   console.log(`Connecting to ${network} for DPNS registration...`);
-  await sdk.connect();
+  await withRetry(() => sdk.connect(), retryOptions);
 
   try {
     console.log(`Registering username "${label}" for identity ${identityId}...`);
 
-    await sdk.dpns.registerName({
-      label,
-      identityId,
-      publicKeyId,
-      privateKeyWif,
-      onPreorder: onPreorder ? () => onPreorder() : undefined,
-    });
+    await withRetry(
+      () => sdk.dpns.registerName({
+        label,
+        identityId,
+        publicKeyId,
+        privateKeyWif,
+        onPreorder: onPreorder ? () => onPreorder() : undefined,
+      }),
+      retryOptions
+    );
 
     const normalized = convertToHomographSafe(label);
     return {

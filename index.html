@@ -84,6 +84,34 @@
       color: #fff;
     }
 
+    /* Retry banner */
+    .retry-banner {
+      background: rgba(255, 152, 0, 0.15);
+      border: 1px solid rgba(255, 152, 0, 0.3);
+      border-radius: 8px;
+      padding: 10px 16px;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+
+    .retry-icon {
+      font-size: 1.2rem;
+      animation: spin 1s linear infinite;
+    }
+
+    .retry-text {
+      color: #ff9800;
+      font-size: 0.85rem;
+      font-weight: 500;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
+    }
 
     .content {
       min-height: 200px;
@@ -1270,6 +1298,329 @@
       cursor: not-allowed;
       transform: none !important;
       box-shadow: none !important;
+    }
+
+    /* ============================================================================
+       Identity Management Styles
+       ============================================================================ */
+
+    /* Manage headlines and subtitles */
+    .manage-headline {
+      color: #fff;
+      font-size: 1.4rem;
+      margin-bottom: 8px;
+      text-align: center;
+    }
+
+    .manage-subtitle {
+      color: #888;
+      font-size: 0.9rem;
+      margin-bottom: 24px;
+      text-align: center;
+    }
+
+    /* Manage identity form */
+    .manage-identity-form {
+      text-align: left;
+      margin-bottom: 16px;
+    }
+
+    .manage-identity-form .input-group {
+      margin-bottom: 16px;
+    }
+
+    .manage-input {
+      width: 100%;
+      background: rgba(0, 0, 0, 0.3);
+      border: 2px solid rgba(255, 255, 255, 0.1);
+      color: #fff;
+      padding: 14px 16px;
+      border-radius: 8px;
+      font-family: 'SF Mono', Monaco, monospace;
+      font-size: 0.9rem;
+      transition: border-color 0.2s;
+    }
+
+    .manage-input:focus {
+      outline: none;
+      border-color: #008de4;
+    }
+
+    .manage-input::placeholder {
+      color: #555;
+    }
+
+    .manage-input:disabled {
+      opacity: 0.6;
+    }
+
+    /* Manage view keys step */
+    .manage-view-keys-step {
+      text-align: left;
+    }
+
+    .manage-existing-keys-section,
+    .manage-add-keys-section {
+      margin-bottom: 24px;
+    }
+
+    .manage-existing-keys-section h3,
+    .manage-add-keys-section h3 {
+      color: #b0b0b0;
+      font-size: 0.9rem;
+      font-weight: 600;
+      margin-bottom: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .manage-keys-table {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .manage-key-row {
+      display: flex;
+      align-items: center;
+      background: rgba(0, 0, 0, 0.2);
+      padding: 12px 14px;
+      border-radius: 8px;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .manage-key-row.to-disable {
+      background: rgba(244, 67, 54, 0.1);
+      border: 1px solid rgba(244, 67, 54, 0.3);
+    }
+
+    .manage-key-row.signing-key {
+      background: rgba(0, 141, 228, 0.1);
+      border: 1px solid rgba(0, 141, 228, 0.3);
+    }
+
+    .manage-key-row .key-id {
+      font-weight: 600;
+      color: #fff;
+      min-width: 60px;
+    }
+
+    .manage-key-row .key-type,
+    .manage-key-row .key-purpose,
+    .manage-key-row .key-security {
+      font-size: 0.75rem;
+      color: #888;
+      background: rgba(255, 255, 255, 0.05);
+      padding: 4px 8px;
+      border-radius: 4px;
+    }
+
+    .manage-key-row .key-disable-toggle {
+      margin-left: auto;
+    }
+
+    .signing-indicator {
+      font-size: 0.75rem;
+      color: #008de4;
+      font-weight: 600;
+    }
+
+    .disabled-indicator {
+      font-size: 0.75rem;
+      color: #888;
+      font-weight: 600;
+      font-style: italic;
+    }
+
+    .manage-key-row.already-disabled {
+      opacity: 0.6;
+    }
+
+    .disable-checkbox-label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.8rem;
+      color: #888;
+      cursor: pointer;
+    }
+
+    .disable-checkbox-label input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      cursor: pointer;
+    }
+
+    /* Add new keys section */
+    .manage-add-keys-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .manage-add-key-row {
+      background: rgba(0, 0, 0, 0.2);
+      padding: 16px;
+      border-radius: 8px;
+    }
+
+    .add-key-config {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .add-key-config select {
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: #e0e0e0;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      cursor: pointer;
+      flex: 1;
+      min-width: 80px;
+    }
+
+    .add-key-config select:hover {
+      background: rgba(255, 255, 255, 0.15);
+    }
+
+    .add-key-config select:focus {
+      outline: none;
+      border-color: #008de4;
+    }
+
+    .remove-manage-new-key-btn {
+      background: rgba(244, 67, 54, 0.2);
+      border: none;
+      color: #f44336;
+      width: 32px;
+      height: 32px;
+      border-radius: 6px;
+      font-size: 1.2rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s;
+      flex-shrink: 0;
+    }
+
+    .remove-manage-new-key-btn:hover {
+      background: rgba(244, 67, 54, 0.4);
+    }
+
+    .add-key-backup {
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .add-key-backup .backup-warning {
+      color: #ff9800;
+      font-size: 0.8rem;
+      margin-bottom: 8px;
+    }
+
+    .add-key-backup .key-wif {
+      display: block;
+      background: rgba(0, 0, 0, 0.3);
+      padding: 10px 12px;
+      border-radius: 6px;
+      font-family: 'SF Mono', Monaco, monospace;
+      font-size: 0.75rem;
+      word-break: break-all;
+      color: #b0b0b0;
+      margin-bottom: 8px;
+    }
+
+    .add-key-backup .copy-btn.small {
+      font-size: 0.75rem;
+      padding: 4px 12px;
+    }
+
+    /* Manage summary */
+    .manage-summary {
+      text-align: center;
+      padding: 16px;
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: 8px;
+      margin-bottom: 16px;
+    }
+
+    .manage-summary p {
+      color: #b0b0b0;
+      font-size: 0.9rem;
+      margin: 0;
+    }
+
+    .manage-summary .no-changes {
+      color: #666;
+    }
+
+    /* Manage updating step */
+    .manage-updating-step {
+      text-align: center;
+      padding: 20px 0;
+    }
+
+    .manage-updating-status {
+      color: #888;
+      font-size: 0.9rem;
+    }
+
+    /* Manage complete step */
+    .manage-complete-step {
+      text-align: center;
+    }
+
+    .manage-success-msg {
+      color: #4CAF50;
+      font-size: 1rem;
+      margin-bottom: 20px;
+    }
+
+    .manage-changes-summary {
+      background: rgba(0, 0, 0, 0.2);
+      padding: 16px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+    }
+
+    .manage-changes-summary p {
+      color: #b0b0b0;
+      font-size: 0.9rem;
+      margin: 4px 0;
+    }
+
+    .manage-error-msg {
+      background: rgba(244, 67, 54, 0.1);
+      border: 1px solid rgba(244, 67, 54, 0.3);
+      padding: 16px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+    }
+
+    .manage-error-msg p {
+      color: #b0b0b0;
+      margin: 4px 0;
+    }
+
+    .manage-error-msg .error-detail {
+      color: #f44336;
+      font-size: 0.85rem;
+      word-break: break-word;
+    }
+
+    .manage-action-buttons {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-top: 24px;
     }
   </style>
 </head>

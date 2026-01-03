@@ -13,6 +13,17 @@ const KEY_PURPOSES: KeyPurpose[] = ['AUTHENTICATION', 'TRANSFER', 'VOTING', 'OWN
 const SECURITY_LEVELS: SecurityLevel[] = ['MASTER', 'CRITICAL', 'HIGH', 'MEDIUM'];
 
 /**
+ * Get allowed security levels for a given purpose
+ * TRANSFER purpose only allows CRITICAL security level
+ */
+function getAllowedSecurityLevels(purpose: KeyPurpose, includeMaster = true): SecurityLevel[] {
+  if (purpose === 'TRANSFER') {
+    return ['CRITICAL'];
+  }
+  return includeMaster ? SECURITY_LEVELS : SECURITY_LEVELS.filter(s => s !== 'MASTER');
+}
+
+/**
  * Escape HTML special characters to prevent XSS
  */
 function escapeHtml(str: string): string {
@@ -47,6 +58,16 @@ export function render(state: BridgeState, container: HTMLElement): void {
   `;
   wrapper.appendChild(header);
 
+  // Retry indicator banner
+  if (state.retryStatus?.isRetrying) {
+    const retryBanner = document.createElement('div');
+    retryBanner.className = 'retry-banner';
+    retryBanner.innerHTML = `
+      <span class="retry-icon">↻</span>
+      <span class="retry-text">Connection issue, retrying (${state.retryStatus.attempt}/${state.retryStatus.maxAttempts})...</span>
+    `;
+    wrapper.appendChild(retryBanner);
+  }
 
   // Content based on step
   const content = document.createElement('div');
@@ -115,6 +136,23 @@ export function render(state: BridgeState, container: HTMLElement): void {
     case 'dpns_complete':
       content.appendChild(renderDpnsCompleteStep(state));
       break;
+
+    // Identity Management steps
+    case 'manage_enter_identity':
+      content.appendChild(renderManageEnterIdentityStep(state));
+      break;
+
+    case 'manage_view_keys':
+      content.appendChild(renderManageViewKeysStep(state));
+      break;
+
+    case 'manage_updating':
+      content.appendChild(renderManageUpdatingStep(state));
+      break;
+
+    case 'manage_complete':
+      content.appendChild(renderManageCompleteStep(state));
+      break;
   }
 
   wrapper.appendChild(content);
@@ -159,6 +197,10 @@ function renderInitStep(state: BridgeState): HTMLElement {
       <span class="mode-label">Register Username</span>
       <span class="mode-desc">Get a DPNS username for your identity</span>
     </button>
+    <button id="mode-manage-btn" class="mode-btn secondary-btn">
+      <span class="mode-label">Manage Identity Keys</span>
+      <span class="mode-desc">Add or disable keys on an existing identity</span>
+    </button>
   `;
   div.appendChild(modeButtons);
 
@@ -190,6 +232,7 @@ function renderConfigureKeysStep(state: BridgeState): HTMLElement {
     keyRow.className = 'key-row';
     keyRow.dataset.keyId = String(key.id);
 
+    const allowedSecurityLevels = getAllowedSecurityLevels(key.purpose, true);
     keyRow.innerHTML = `
       <div class="key-name">${key.name}</div>
       <div class="key-config">
@@ -200,7 +243,7 @@ function renderConfigureKeysStep(state: BridgeState): HTMLElement {
           ${KEY_PURPOSES.map((p) => `<option value="${p}" ${p === key.purpose ? 'selected' : ''}>${p.substring(0, 6)}</option>`).join('')}
         </select>
         <select class="key-security-select" data-key-id="${key.id}">
-          ${SECURITY_LEVELS.map((s) => `<option value="${s}" ${s === key.securityLevel ? 'selected' : ''}>${s}</option>`).join('')}
+          ${allowedSecurityLevels.map((s) => `<option value="${s}" ${s === key.securityLevel ? 'selected' : ''}>${s}</option>`).join('')}
         </select>
         <button class="remove-key-btn" data-key-id="${key.id}" ${state.identityKeys.length <= 1 ? 'disabled' : ''}>×</button>
       </div>
@@ -1200,6 +1243,435 @@ function renderDpnsCompleteStep(state: BridgeState): HTMLElement {
   moreBtn.className = 'primary-btn';
   moreBtn.textContent = 'Register More Usernames';
   actionButtons.appendChild(moreBtn);
+
+  const startOverBtn = document.createElement('button');
+  startOverBtn.id = 'retry-btn';
+  startOverBtn.className = 'secondary-btn';
+  startOverBtn.textContent = 'Start Over';
+  actionButtons.appendChild(startOverBtn);
+
+  div.appendChild(actionButtons);
+
+  return div;
+}
+
+// ============================================================================
+// Identity Management Render Functions
+// ============================================================================
+
+/**
+ * Helper to get key type name from numeric value
+ */
+function getKeyTypeName(type: number): string {
+  switch (type) {
+    case 0: return 'ECDSA_SECP256K1';
+    case 1: return 'BLS12_381';
+    case 2: return 'ECDSA_HASH160';
+    case 3: return 'BIP13_SCRIPT_HASH';
+    case 4: return 'EDDSA_25519_HASH160';
+    default: return `UNKNOWN(${type})`;
+  }
+}
+
+/**
+ * Helper to get key purpose name from numeric value
+ */
+function getKeyPurposeName(purpose: number): string {
+  switch (purpose) {
+    case 0: return 'AUTHENTICATION';
+    case 1: return 'ENCRYPTION';
+    case 2: return 'DECRYPTION';
+    case 3: return 'TRANSFER';
+    case 4: return 'OWNER';
+    case 5: return 'VOTING';
+    default: return `UNKNOWN(${purpose})`;
+  }
+}
+
+/**
+ * Render manage enter identity step
+ */
+function renderManageEnterIdentityStep(state: BridgeState): HTMLElement {
+  const div = document.createElement('div');
+  div.className = 'manage-enter-identity-step';
+
+  const headline = document.createElement('h2');
+  headline.className = 'manage-headline';
+  headline.textContent = 'Manage Identity Keys';
+  div.appendChild(headline);
+
+  const form = document.createElement('div');
+  form.className = 'manage-identity-form';
+
+  const isFetching = state.manageIdentityFetching === true;
+  const hasFetched = state.manageIdentityKeys !== undefined;
+  const hasFetchError = state.manageIdentityFetchError !== undefined;
+  const hasValidatedKey = state.manageSigningKeyInfo !== undefined;
+  const hasKeyError = state.manageKeyValidationError !== undefined;
+
+  // Identity status message
+  let identityStatusHtml = '';
+  if (isFetching) {
+    identityStatusHtml = '<p class="identity-status loading">Fetching identity...</p>';
+  } else if (hasFetchError) {
+    identityStatusHtml = `<p class="identity-status error">${escapeHtml(state.manageIdentityFetchError!)}</p>`;
+  } else if (hasFetched) {
+    const keyCount = state.manageIdentityKeys!.length;
+    identityStatusHtml = `<p class="identity-status success">Identity found with ${keyCount} key${keyCount !== 1 ? 's' : ''}</p>`;
+  }
+
+  // Key validation status message
+  let keyValidationHtml = '';
+  if (hasValidatedKey) {
+    const levelName = getSecurityLevelName(state.manageSigningKeyInfo!.securityLevel);
+    keyValidationHtml = `<p class="key-status success">Key matches key #${state.manageSigningKeyInfo!.keyId} (${levelName} level)</p>`;
+  } else if (hasKeyError) {
+    keyValidationHtml = `<p class="key-status error">${escapeHtml(state.manageKeyValidationError!)}</p>`;
+  }
+
+  form.innerHTML = `
+    <div class="input-group">
+      <label class="input-label">Identity ID</label>
+      <input
+        type="text"
+        id="manage-identity-id-input"
+        class="manage-input"
+        placeholder="Your 44-character identity ID..."
+        value="${state.targetIdentityId || ''}"
+        ${isFetching ? 'disabled' : ''}
+      />
+      <p class="input-hint">The Base58 identifier for your identity</p>
+      ${identityStatusHtml}
+    </div>
+
+    <div class="input-group">
+      <label class="input-label">Private Key (WIF)</label>
+      <input
+        type="password"
+        id="manage-private-key-input"
+        class="manage-input"
+        placeholder="Your private key in WIF format..."
+        value="${state.managePrivateKeyWif || ''}"
+      />
+      <p class="input-hint">Only MASTER level keys can modify identity keys</p>
+      ${keyValidationHtml}
+    </div>
+  `;
+
+  div.appendChild(form);
+
+  // Navigation buttons
+  const navButtons = document.createElement('div');
+  navButtons.className = 'nav-buttons';
+
+  const backBtn = document.createElement('button');
+  backBtn.id = 'manage-back-btn';
+  backBtn.className = 'secondary-btn';
+  backBtn.textContent = 'Back';
+  navButtons.appendChild(backBtn);
+
+  // Continue button only enabled when key is validated
+  const continueBtn = document.createElement('button');
+  continueBtn.id = 'manage-identity-continue-btn';
+  continueBtn.className = 'primary-btn';
+  continueBtn.textContent = 'Continue';
+  if (!hasValidatedKey) {
+    continueBtn.setAttribute('disabled', 'true');
+  }
+  navButtons.appendChild(continueBtn);
+
+  div.appendChild(navButtons);
+
+  return div;
+}
+
+/**
+ * Render manage view keys step
+ */
+function renderManageViewKeysStep(state: BridgeState): HTMLElement {
+  const div = document.createElement('div');
+  div.className = 'manage-view-keys-step';
+
+  const headline = document.createElement('h2');
+  headline.className = 'manage-headline';
+  headline.textContent = 'Manage Keys';
+  div.appendChild(headline);
+
+  // Show loading state while refetching keys
+  if (state.manageIdentityFetching) {
+    const loadingDiv = document.createElement('div');
+    loadingDiv.className = 'manage-loading';
+    loadingDiv.innerHTML = `
+      <div class="spinner"></div>
+      <p>Refreshing identity keys...</p>
+    `;
+    div.appendChild(loadingDiv);
+    return div;
+  }
+
+  // Show error if key fetch failed
+  if (state.manageIdentityFetchError && !state.manageIdentityKeys) {
+    const errorDiv = document.createElement('div');
+    errorDiv.className = 'manage-error';
+    errorDiv.innerHTML = `
+      <p class="error-message">${state.manageIdentityFetchError}</p>
+      <button id="manage-back-btn" class="secondary-btn">Go Back</button>
+    `;
+    div.appendChild(errorDiv);
+    return div;
+  }
+
+  const signingKeyId = state.manageSigningKeyInfo?.keyId;
+  const keysToDisable = state.manageKeyIdsToDisable || [];
+  const keysToAdd = state.manageKeysToAdd || [];
+
+  // Existing keys section
+  const existingSection = document.createElement('div');
+  existingSection.className = 'manage-existing-keys-section';
+
+  const existingHeader = document.createElement('h3');
+  existingHeader.textContent = 'Existing Keys';
+  existingSection.appendChild(existingHeader);
+
+  const existingTable = document.createElement('div');
+  existingTable.className = 'manage-keys-table';
+
+  const identityKeys = state.manageIdentityKeys || [];
+  identityKeys.forEach((key) => {
+    const row = document.createElement('div');
+    row.className = 'manage-key-row';
+    if (keysToDisable.includes(key.id)) {
+      row.className += ' to-disable';
+    }
+    if (key.id === signingKeyId) {
+      row.className += ' signing-key';
+    }
+    const isAlreadyDisabled = key.isDisabled === true;
+    if (isAlreadyDisabled) {
+      row.className += ' already-disabled';
+    }
+
+    const isSigningKey = key.id === signingKeyId;
+    const isMarkedForDisable = keysToDisable.includes(key.id);
+
+    // Determine what to show in the toggle column
+    let toggleContent: string;
+    if (isAlreadyDisabled) {
+      toggleContent = '<span class="disabled-indicator" title="This key has been disabled">Disabled</span>';
+    } else if (isSigningKey) {
+      toggleContent = '<span class="signing-indicator" title="This key is being used to sign the update">Signing Key</span>';
+    } else {
+      toggleContent = `<label class="disable-checkbox-label">
+          <input type="checkbox" class="manage-disable-key-checkbox" data-key-id="${key.id}" ${isMarkedForDisable ? 'checked' : ''} />
+          Disable
+        </label>`;
+    }
+
+    row.innerHTML = `
+      <div class="key-id">Key #${key.id}</div>
+      <div class="key-type">${getKeyTypeName(key.type)}</div>
+      <div class="key-purpose">${getKeyPurposeName(key.purpose)}</div>
+      <div class="key-security">${getSecurityLevelName(key.securityLevel)}</div>
+      <div class="key-disable-toggle">
+        ${toggleContent}
+      </div>
+    `;
+
+    existingTable.appendChild(row);
+  });
+
+  existingSection.appendChild(existingTable);
+  div.appendChild(existingSection);
+
+  // Add new keys section
+  const addSection = document.createElement('div');
+  addSection.className = 'manage-add-keys-section';
+
+  const addHeader = document.createElement('h3');
+  addHeader.textContent = 'Add New Keys';
+  addSection.appendChild(addHeader);
+
+  const addKeysList = document.createElement('div');
+  addKeysList.className = 'manage-add-keys-list';
+
+  keysToAdd.forEach((key) => {
+    const row = document.createElement('div');
+    row.className = 'manage-add-key-row';
+    row.dataset.tempId = key.tempId;
+
+    const allowedSecurityLevels = getAllowedSecurityLevels(key.purpose, false);
+    row.innerHTML = `
+      <div class="add-key-config">
+        <select class="manage-key-type-select" data-temp-id="${key.tempId}">
+          ${KEY_TYPES.map((t) => `<option value="${t}" ${t === key.keyType ? 'selected' : ''}>${t.replace('ECDSA_', '')}</option>`).join('')}
+        </select>
+        <select class="manage-key-purpose-select" data-temp-id="${key.tempId}">
+          ${KEY_PURPOSES.map((p) => `<option value="${p}" ${p === key.purpose ? 'selected' : ''}>${p.substring(0, 6)}</option>`).join('')}
+        </select>
+        <select class="manage-key-security-select" data-temp-id="${key.tempId}">
+          ${allowedSecurityLevels.map((s) => `<option value="${s}" ${s === key.securityLevel ? 'selected' : ''}>${s}</option>`).join('')}
+        </select>
+        <button class="remove-manage-new-key-btn" data-temp-id="${key.tempId}">&times;</button>
+      </div>
+      ${key.source === 'generate' && key.generatedKey ? `
+        <div class="add-key-backup">
+          <p class="backup-warning">Save this private key (WIF):</p>
+          <code class="key-wif">${key.generatedKey.privateKeyWif}</code>
+          <button class="copy-btn small" data-copy="${key.generatedKey.privateKeyWif}">Copy</button>
+        </div>
+      ` : ''}
+    `;
+
+    addKeysList.appendChild(row);
+  });
+
+  addSection.appendChild(addKeysList);
+
+  // Add key button
+  const addKeyBtn = document.createElement('button');
+  addKeyBtn.id = 'add-manage-key-btn';
+  addKeyBtn.className = 'add-key-btn';
+  addKeyBtn.textContent = '+ Add New Key';
+  addSection.appendChild(addKeyBtn);
+
+  div.appendChild(addSection);
+
+  // Summary section
+  const summary = document.createElement('div');
+  summary.className = 'manage-summary';
+  const addCount = keysToAdd.length;
+  const disableCount = keysToDisable.length;
+  if (addCount > 0 || disableCount > 0) {
+    summary.innerHTML = `<p>Will add <strong>${addCount}</strong> key${addCount !== 1 ? 's' : ''}, disable <strong>${disableCount}</strong> key${disableCount !== 1 ? 's' : ''}</p>`;
+  } else {
+    summary.innerHTML = '<p class="no-changes">No changes configured</p>';
+  }
+  div.appendChild(summary);
+
+  // Navigation buttons
+  const navButtons = document.createElement('div');
+  navButtons.className = 'nav-buttons';
+
+  const backBtn = document.createElement('button');
+  backBtn.id = 'manage-back-btn';
+  backBtn.className = 'secondary-btn';
+  backBtn.textContent = 'Back';
+  navButtons.appendChild(backBtn);
+
+  const applyBtn = document.createElement('button');
+  applyBtn.id = 'apply-manage-btn';
+  applyBtn.className = 'primary-btn';
+  applyBtn.textContent = 'Apply Changes';
+  if (addCount === 0 && disableCount === 0) {
+    applyBtn.setAttribute('disabled', 'true');
+  }
+  navButtons.appendChild(applyBtn);
+
+  div.appendChild(navButtons);
+
+  return div;
+}
+
+/**
+ * Render manage updating step
+ */
+function renderManageUpdatingStep(state: BridgeState): HTMLElement {
+  const div = document.createElement('div');
+  div.className = 'manage-updating-step';
+
+  const headline = document.createElement('h2');
+  headline.className = 'manage-headline';
+  headline.textContent = 'Updating Identity';
+  div.appendChild(headline);
+
+  const subtitle = document.createElement('p');
+  subtitle.className = 'manage-subtitle';
+  subtitle.textContent = 'Submitting identity update transition to Dash Platform...';
+  div.appendChild(subtitle);
+
+  const spinner = document.createElement('div');
+  spinner.className = 'spinner large';
+  div.appendChild(spinner);
+
+  const addCount = (state.manageKeysToAdd || []).length;
+  const disableCount = (state.manageKeyIdsToDisable || []).length;
+
+  const status = document.createElement('p');
+  status.className = 'manage-updating-status';
+  status.textContent = `Adding ${addCount} key${addCount !== 1 ? 's' : ''}, disabling ${disableCount} key${disableCount !== 1 ? 's' : ''}...`;
+  div.appendChild(status);
+
+  return div;
+}
+
+/**
+ * Render manage complete step
+ */
+function renderManageCompleteStep(state: BridgeState): HTMLElement {
+  const div = document.createElement('div');
+  div.className = 'manage-complete-step';
+
+  const result = state.manageUpdateResult;
+  const isSuccess = result?.success === true;
+
+  const headline = document.createElement('h2');
+  headline.className = 'manage-headline';
+  headline.textContent = isSuccess ? 'Update Complete!' : 'Update Failed';
+  div.appendChild(headline);
+
+  if (isSuccess) {
+    const successMsg = document.createElement('p');
+    successMsg.className = 'manage-success-msg';
+    successMsg.textContent = 'Your identity keys have been updated successfully.';
+    div.appendChild(successMsg);
+
+    // Show summary of changes
+    const addCount = (state.manageKeysToAdd || []).length;
+    const disableCount = (state.manageKeyIdsToDisable || []).length;
+
+    const changesSummary = document.createElement('div');
+    changesSummary.className = 'manage-changes-summary';
+    changesSummary.innerHTML = `
+      <p>Keys added: <strong>${addCount}</strong></p>
+      <p>Keys disabled: <strong>${disableCount}</strong></p>
+    `;
+    div.appendChild(changesSummary);
+  } else {
+    const errorMsg = document.createElement('div');
+    errorMsg.className = 'manage-error-msg';
+    errorMsg.innerHTML = `
+      <p>The update could not be completed.</p>
+      <p class="error-detail">${escapeHtml(result?.error || 'Unknown error')}</p>
+    `;
+    div.appendChild(errorMsg);
+  }
+
+  // Identity info
+  const identityInfo = document.createElement('div');
+  identityInfo.className = 'identity-info';
+  identityInfo.innerHTML = `
+    <label>Identity ID</label>
+    <code class="identity-id">${state.targetIdentityId || 'Unknown'}</code>
+  `;
+  div.appendChild(identityInfo);
+
+  // Action buttons
+  const actionButtons = document.createElement('div');
+  actionButtons.className = 'manage-action-buttons';
+
+  if (isSuccess) {
+    const moreBtn = document.createElement('button');
+    moreBtn.id = 'manage-more-btn';
+    moreBtn.className = 'primary-btn';
+    moreBtn.textContent = 'Make More Changes';
+    actionButtons.appendChild(moreBtn);
+  } else {
+    const retryBtn = document.createElement('button');
+    retryBtn.id = 'manage-retry-btn';
+    retryBtn.className = 'primary-btn';
+    retryBtn.textContent = 'Try Again';
+    actionButtons.appendChild(retryBtn);
+  }
 
   const startOverBtn = document.createElement('button');
   startOverBtn.id = 'retry-btn';

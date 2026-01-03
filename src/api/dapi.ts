@@ -2,6 +2,8 @@
  * Client for InstantSend lock retrieval via RPC API
  */
 
+import { withRetry, type RetryOptions } from '../utils/retry.js';
+
 const API_URLS = {
   testnet: 'https://trpc.digitalcash.dev',
   mainnet: 'https://rpc.digitalcash.dev',
@@ -49,17 +51,19 @@ export class DAPIClient {
   /**
    * Get InstantSend lock from tRPC API
    * Polls the API until the islock is available or timeout is reached
+   * @param onRetry - Optional callback when a network error causes a retry
    */
   async waitForInstantSendLock(
     txid: string,
-    timeoutMs: number = 60000
+    timeoutMs: number = 60000,
+    onRetry?: (attempt: number, maxAttempts: number, error: unknown) => void
   ): Promise<Uint8Array> {
     const startTime = Date.now();
     const pollInterval = 2000; // Poll every 2 seconds
 
     while (Date.now() - startTime < timeoutMs) {
       try {
-        const islock = await this.getIslock(txid);
+        const islock = await this.getIslock(txid, { onRetry });
         if (islock) {
           return islock;
         }
@@ -79,36 +83,38 @@ export class DAPIClient {
   /**
    * Fetch islock from JSON-RPC API
    */
-  private async getIslock(txid: string): Promise<Uint8Array | null> {
-    const baseUrl = API_URLS[this.network];
+  private async getIslock(txid: string, retryOptions?: RetryOptions): Promise<Uint8Array | null> {
+    return withRetry(async () => {
+      const baseUrl = API_URLS[this.network];
 
-    const response = await fetch(baseUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        method: 'getislocks',
-        params: [[txid]],
-      }),
-    });
+      const response = await fetch(baseUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          method: 'getislocks',
+          params: [[txid]],
+        }),
+      });
 
-    if (!response.ok) {
-      throw new Error(`RPC API error: ${response.status} ${response.statusText}`);
-    }
-
-    const data: IslockResponse = await response.json();
-
-    // Check if we got a result
-    if (data.result && data.result.length > 0) {
-      const islockData = data.result.find((item) => item.txid === txid);
-      if (islockData?.hex) {
-        // Convert hex string to Uint8Array
-        return hexToBytes(islockData.hex);
+      if (!response.ok) {
+        throw new Error(`RPC API error: ${response.status} ${response.statusText}`);
       }
-    }
 
-    return null;
+      const data: IslockResponse = await response.json();
+
+      // Check if we got a result
+      if (data.result && data.result.length > 0) {
+        const islockData = data.result.find((item) => item.txid === txid);
+        if (islockData?.hex) {
+          // Convert hex string to Uint8Array
+          return hexToBytes(islockData.hex);
+        }
+      }
+
+      return null;
+    }, retryOptions);
   }
 }
 

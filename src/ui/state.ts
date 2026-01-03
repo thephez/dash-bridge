@@ -8,6 +8,8 @@ import type {
   DpnsUsernameEntry,
   DpnsRegistrationResult,
   DpnsIdentitySource,
+  IdentityPublicKeyInfo,
+  ManageNewKeyConfig,
 } from '../types.js';
 import {
   generateDefaultIdentityKeysHD,
@@ -76,7 +78,7 @@ export function setMode(state: BridgeState, mode: BridgeMode): BridgeState {
       identityKeys: [],
       isOneTimeKey: true,
     };
-  } else {
+  } else if (mode === 'dpns') {
     // DPNS mode: go to identity source selection
     return {
       ...state,
@@ -86,6 +88,23 @@ export function setMode(state: BridgeState, mode: BridgeMode): BridgeState {
       dpnsResults: undefined,
       dpnsFromIdentityCreation: false,
       dpnsContestedWarningAcknowledged: false,
+    };
+  } else {
+    // Manage mode: go to identity entry
+    return {
+      ...state,
+      step: 'manage_enter_identity',
+      mode,
+      // Clear any previous manage state
+      manageKeysToAdd: [],
+      manageKeyIdsToDisable: [],
+      managePrivateKeyWif: undefined,
+      manageSigningKeyInfo: undefined,
+      manageIdentityFetching: undefined,
+      manageIdentityFetchError: undefined,
+      manageIdentityKeys: undefined,
+      manageUpdateResult: undefined,
+      manageKeyValidationError: undefined,
     };
   }
 }
@@ -143,14 +162,23 @@ export function updateIdentityKey(
   const identityKeys = state.identityKeys.map((key, index) => {
     if (key.id !== keyId) return key;
 
+    // Determine effective purpose and security level
+    const effectivePurpose = updates.purpose ?? key.purpose;
+    let effectiveSecurityLevel = updates.securityLevel ?? key.securityLevel;
+
+    // TRANSFER purpose only allows CRITICAL security level
+    if (effectivePurpose === 'TRANSFER' && effectiveSecurityLevel !== 'CRITICAL') {
+      effectiveSecurityLevel = 'CRITICAL';
+    }
+
     // If keyType changed, regenerate with new type using HD derivation
     if (updates.keyType && updates.keyType !== key.keyType) {
       return generateIdentityKeyFromMnemonic(
         key.id,
         updates.name ?? key.name,
         updates.keyType,
-        updates.purpose ?? key.purpose,
-        updates.securityLevel ?? key.securityLevel,
+        effectivePurpose,
+        effectiveSecurityLevel,
         state.network,
         state.mnemonic!,
         index // Use array index as key index
@@ -160,6 +188,8 @@ export function updateIdentityKey(
     return {
       ...key,
       ...updates,
+      purpose: effectivePurpose,
+      securityLevel: effectiveSecurityLevel,
     };
   });
 
@@ -375,6 +405,11 @@ export function getStepDescription(step: BridgeStep): string {
     dpns_review: 'Review usernames',
     dpns_registering: 'Registering...',
     dpns_complete: 'Registration complete',
+    // Identity Management steps
+    manage_enter_identity: 'Manage identity',
+    manage_view_keys: 'Manage keys',
+    manage_updating: 'Updating identity...',
+    manage_complete: 'Update complete',
   };
   return descriptions[step];
 }
@@ -406,6 +441,11 @@ export function getStepProgress(step: BridgeStep): number {
     dpns_review: 60,
     dpns_registering: 80,
     dpns_complete: 100,
+    // Identity Management steps
+    manage_enter_identity: 20,
+    manage_view_keys: 40,
+    manage_updating: 70,
+    manage_complete: 100,
   };
   return progress[step];
 }
@@ -426,6 +466,8 @@ export function isProcessingStep(step: BridgeStep): boolean {
     // DPNS processing steps
     'dpns_checking',
     'dpns_registering',
+    // Identity Management processing steps
+    'manage_updating',
   ];
   return processingSteps.includes(step);
 }
@@ -716,5 +758,228 @@ export function setDpnsBackToEntry(state: BridgeState): BridgeState {
   return {
     ...state,
     step: 'dpns_enter_usernames',
+  };
+}
+
+// ============================================================================
+// Identity Management State Functions
+// ============================================================================
+
+/**
+ * Start fetching identity for management
+ */
+export function setManageIdentityFetching(state: BridgeState, identityId: string): BridgeState {
+  return {
+    ...state,
+    targetIdentityId: identityId,
+    manageIdentityFetching: true,
+    manageIdentityFetchError: undefined,
+    manageIdentityKeys: undefined,
+    manageSigningKeyInfo: undefined,
+    manageKeyValidationError: undefined,
+  };
+}
+
+/**
+ * Identity fetch succeeded
+ */
+export function setManageIdentityFetched(
+  state: BridgeState,
+  keys: IdentityPublicKeyInfo[]
+): BridgeState {
+  return {
+    ...state,
+    manageIdentityFetching: false,
+    manageIdentityFetchError: undefined,
+    manageIdentityKeys: keys,
+  };
+}
+
+/**
+ * Identity fetch failed
+ */
+export function setManageIdentityFetchError(state: BridgeState, error: string): BridgeState {
+  return {
+    ...state,
+    manageIdentityFetching: false,
+    manageIdentityFetchError: error,
+    manageIdentityKeys: undefined,
+  };
+}
+
+/**
+ * Validate signing key and proceed to key management view
+ */
+export function setManageKeyValidated(
+  state: BridgeState,
+  keyId: number,
+  securityLevel: number,
+  privateKeyWif: string
+): BridgeState {
+  return {
+    ...state,
+    step: 'manage_view_keys',
+    managePrivateKeyWif: privateKeyWif,
+    manageSigningKeyInfo: { keyId, securityLevel },
+    manageKeyValidationError: undefined,
+  };
+}
+
+/**
+ * Key validation failed
+ */
+export function setManageKeyValidationError(state: BridgeState, error: string): BridgeState {
+  return {
+    ...state,
+    manageSigningKeyInfo: undefined,
+    manageKeyValidationError: error,
+  };
+}
+
+/**
+ * Clear manage key validation state (when private key input changes)
+ */
+export function clearManageKeyValidation(state: BridgeState): BridgeState {
+  return {
+    ...state,
+    manageSigningKeyInfo: undefined,
+    manageKeyValidationError: undefined,
+    managePrivateKeyWif: undefined,
+  };
+}
+
+/**
+ * Add a new key to be added
+ */
+export function addManageNewKey(state: BridgeState, config: ManageNewKeyConfig): BridgeState {
+  return {
+    ...state,
+    manageKeysToAdd: [...(state.manageKeysToAdd || []), config],
+  };
+}
+
+/**
+ * Remove a key from the add list
+ */
+export function removeManageNewKey(state: BridgeState, tempId: string): BridgeState {
+  return {
+    ...state,
+    manageKeysToAdd: (state.manageKeysToAdd || []).filter(k => k.tempId !== tempId),
+  };
+}
+
+/**
+ * Update a key in the add list
+ */
+export function updateManageNewKey(
+  state: BridgeState,
+  tempId: string,
+  updates: Partial<ManageNewKeyConfig>
+): BridgeState {
+  return {
+    ...state,
+    manageKeysToAdd: (state.manageKeysToAdd || []).map(k => {
+      if (k.tempId !== tempId) return k;
+
+      // Determine effective purpose and security level
+      const effectivePurpose = updates.purpose ?? k.purpose;
+      let effectiveSecurityLevel = updates.securityLevel ?? k.securityLevel;
+
+      // TRANSFER purpose only allows CRITICAL security level
+      if (effectivePurpose === 'TRANSFER' && effectiveSecurityLevel !== 'CRITICAL') {
+        effectiveSecurityLevel = 'CRITICAL';
+      }
+
+      return {
+        ...k,
+        ...updates,
+        purpose: effectivePurpose,
+        securityLevel: effectiveSecurityLevel,
+      };
+    }),
+  };
+}
+
+/**
+ * Toggle a key for disabling
+ */
+export function toggleManageDisableKey(state: BridgeState, keyId: number): BridgeState {
+  const current = state.manageKeyIdsToDisable || [];
+  const isDisabled = current.includes(keyId);
+
+  return {
+    ...state,
+    manageKeyIdsToDisable: isDisabled
+      ? current.filter(id => id !== keyId)
+      : [...current, keyId],
+  };
+}
+
+/**
+ * Start the update transition
+ */
+export function setManageUpdating(state: BridgeState): BridgeState {
+  return {
+    ...state,
+    step: 'manage_updating',
+  };
+}
+
+/**
+ * Update complete
+ */
+export function setManageComplete(
+  state: BridgeState,
+  result: { success: boolean; error?: string }
+): BridgeState {
+  return {
+    ...state,
+    step: 'manage_complete',
+    manageUpdateResult: result,
+  };
+}
+
+/**
+ * Reset manage state to try again or start over
+ */
+export function resetManageState(state: BridgeState): BridgeState {
+  return {
+    ...state,
+    step: 'manage_view_keys',
+    manageKeysToAdd: [],
+    manageKeyIdsToDisable: [],
+    manageUpdateResult: undefined,
+  };
+}
+
+/**
+ * Reset manage state and prepare to refresh identity keys
+ * Used after a successful update to get fresh key data
+ */
+export function resetManageStateAndRefresh(state: BridgeState): BridgeState {
+  return {
+    ...state,
+    step: 'manage_view_keys',
+    manageKeysToAdd: [],
+    manageKeyIdsToDisable: [],
+    manageUpdateResult: undefined,
+    manageIdentityKeys: undefined,
+    manageIdentityFetching: true,
+  };
+}
+
+/**
+ * Go back to manage enter identity step
+ */
+export function setManageBackToEntry(state: BridgeState): BridgeState {
+  return {
+    ...state,
+    step: 'manage_enter_identity',
+    // Keep identity ID and keys, just clear validation
+    manageSigningKeyInfo: undefined,
+    managePrivateKeyWif: undefined,
+    manageKeyValidationError: undefined,
+    manageKeysToAdd: [],
+    manageKeyIdsToDisable: [],
   };
 }
