@@ -214,7 +214,7 @@ function renderConfigureKeysStep(state: BridgeState): HTMLElement {
   const reassurance = document.createElement('div');
   reassurance.className = 'keys-reassurance';
   reassurance.innerHTML = `
-    <p class="keys-reassurance-text"><strong>These defaults are recommended. You don't need to change anything.</strong></p>
+    <p class="keys-reassurance-text"><strong>Continue with recommended settings, or customize below.</strong></p>
   `;
   div.appendChild(reassurance);
 
