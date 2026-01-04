@@ -167,8 +167,7 @@ function renderInitStep(state: BridgeState): HTMLElement {
   const intro = document.createElement('div');
   intro.className = 'intro';
   intro.innerHTML = `
-    <p>What would you like to do?</p>
-    <p class="intro-secondary">All cryptographic operations happen in your browser.</p>
+    <p class="intro-security">All cryptographic operations happen in your browser.</p>
   `;
   div.appendChild(intro);
 
