@@ -1119,6 +1119,11 @@ async function startBridge() {
 
     updateState(setIdentityRegistered(state, result.identityId));
 
+    // Auto-download final key backup on "Save your keys" page
+    // This backup includes the identity ID in the filename
+    // (Earlier download at deposit step used pending filename)
+    downloadKeyBackup(state);
+
   } catch (error) {
     console.error('Bridge error:', error);
     updateState(setError(state, error instanceof Error ? error : new Error(String(error))));
@@ -1220,6 +1225,9 @@ async function recheckDeposit() {
     );
 
     updateState(setIdentityRegistered(state, result.identityId));
+
+    // Auto-download final key backup on "Save your keys" page
+    downloadKeyBackup(state);
 
   } catch (error) {
     console.error('Bridge error:', error);
