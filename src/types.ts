@@ -34,7 +34,7 @@ export type KeyType = 'ECDSA_SECP256K1' | 'ECDSA_HASH160';
 /**
  * Key purposes supported by Dash Platform
  */
-export type KeyPurpose = 'AUTHENTICATION' | 'TRANSFER' | 'VOTING' | 'OWNER';
+export type KeyPurpose = 'AUTHENTICATION' | 'ENCRYPTION' | 'TRANSFER' | 'VOTING' | 'OWNER';
 
 /**
  * Security levels supported by Dash Platform
