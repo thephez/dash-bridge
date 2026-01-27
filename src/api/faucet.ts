@@ -9,6 +9,9 @@ declare const Cap: {
   };
 };
 
+/** Default timeout for faucet API requests (30 seconds) */
+const REQUEST_TIMEOUT_MS = 30000;
+
 export interface FaucetStatus {
   status: string;
   /** If present, CAP proof-of-work is required */
@@ -21,16 +24,70 @@ export interface FaucetResponse {
   address: string;
 }
 
-export interface FaucetError {
-  error: string;
-  retryAfter?: number;
+/**
+ * Create a fetch request with timeout support
+ */
+async function fetchWithTimeout(
+  url: string,
+  options: RequestInit = {},
+  timeoutMs: number = REQUEST_TIMEOUT_MS
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+    return response;
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error('Request timed out. Please try again.');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+/**
+ * Safely extract error message from various API response formats
+ */
+function extractErrorMessage(errorData: unknown, fallbackStatus: number): string {
+  if (!errorData || typeof errorData !== 'object') {
+    return `Faucet request failed: ${fallbackStatus}`;
+  }
+
+  const data = errorData as Record<string, unknown>;
+
+  // Try common error message fields
+  if (typeof data.error === 'string' && data.error) {
+    return data.error;
+  }
+  if (typeof data.message === 'string' && data.message) {
+    return data.message;
+  }
+  if (typeof data.detail === 'string' && data.detail) {
+    return data.detail;
+  }
+
+  // For array details (like Pydantic validation errors)
+  if (Array.isArray(data.detail) && data.detail.length > 0) {
+    const firstError = data.detail[0];
+    if (typeof firstError === 'object' && firstError && 'msg' in firstError) {
+      return String(firstError.msg);
+    }
+  }
+
+  return `Faucet request failed: ${fallbackStatus}`;
 }
 
 /**
  * Fetch faucet status to check if CAP is required
  */
 export async function getFaucetStatus(baseUrl: string): Promise<FaucetStatus> {
-  const response = await fetch(`${baseUrl}/api/status`);
+  const response = await fetchWithTimeout(`${baseUrl}/api/status`);
 
   if (!response.ok) {
     throw new Error(`Failed to fetch faucet status: ${response.status}`);
@@ -76,8 +133,7 @@ export async function requestTestnetFunds(
     body.capToken = capToken;
   }
 
-  console.log('Faucet request body:', body);
-  const response = await fetch(`${baseUrl}/api/core-faucet`, {
+  const response = await fetchWithTimeout(`${baseUrl}/api/core-faucet`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -87,10 +143,10 @@ export async function requestTestnetFunds(
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
-    console.error('Faucet error response:', errorData);
 
     if (response.status === 429) {
-      const retryAfter = (errorData as FaucetError).retryAfter;
+      const data = errorData as Record<string, unknown>;
+      const retryAfter = typeof data.retryAfter === 'number' ? data.retryAfter : undefined;
       if (retryAfter) {
         const minutes = Math.ceil(retryAfter / 60);
         throw new Error(`Rate limit exceeded. Try again in ${minutes} minute${minutes !== 1 ? 's' : ''}.`);
@@ -98,9 +154,7 @@ export async function requestTestnetFunds(
       throw new Error('Rate limit exceeded. Please try again later.');
     }
 
-    // Handle various error response formats
-    const errorMessage = errorData.error || errorData.message || errorData.detail || JSON.stringify(errorData);
-    throw new Error(errorMessage || `Faucet request failed: ${response.status}`);
+    throw new Error(extractErrorMessage(errorData, response.status));
   }
 
   return response.json();

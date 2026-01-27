@@ -378,7 +378,74 @@ function renderDepositStep(state: BridgeState): HTMLElement {
   reassurance.textContent = "We'll continue automatically once detected.";
   div.appendChild(reassurance);
 
-  // QR section with prominent label
+  // For testnet: Show faucet as hero action first
+  if (state.network === 'testnet' && state.depositAddress) {
+    const faucetSection = document.createElement('div');
+    faucetSection.className = 'faucet-section faucet-hero';
+
+    const faucetStatus = state.faucetRequestStatus || 'idle';
+
+    if (faucetStatus === 'success' && state.faucetTxid) {
+      // Success state
+      const truncatedTxid = state.faucetTxid.length > 16
+        ? `${state.faucetTxid.slice(0, 8)}...${state.faucetTxid.slice(-8)}`
+        : state.faucetTxid;
+      faucetSection.innerHTML = `
+        <div class="faucet-success">
+          <span class="faucet-checkmark">&#10003;</span>
+          <span>1 tDASH sent!</span>
+          <code class="faucet-txid" title="${state.faucetTxid}">${truncatedTxid}</code>
+        </div>
+      `;
+    } else if (faucetStatus === 'solving_pow') {
+      faucetSection.innerHTML = `
+        <div class="faucet-loading">
+          <div class="faucet-spinner"></div>
+          <span>Solving proof of work...</span>
+        </div>
+      `;
+    } else if (faucetStatus === 'requesting') {
+      faucetSection.innerHTML = `
+        <div class="faucet-loading">
+          <div class="faucet-spinner"></div>
+          <span>Sending funds...</span>
+        </div>
+      `;
+    } else {
+      // Idle or error state - show button with helper text
+      let errorHtml = '';
+      if (faucetStatus === 'error' && state.faucetError) {
+        errorHtml = `<p class="faucet-error">${escapeHtml(state.faucetError)}</p>`;
+      }
+      faucetSection.innerHTML = `
+        <p class="faucet-helper">Don't have testnet DASH?</p>
+        <button id="request-faucet-btn" class="faucet-btn faucet-btn-hero">Request Testnet Funds</button>
+        ${errorHtml}
+      `;
+    }
+
+    div.appendChild(faucetSection);
+  }
+
+  // Collapsible section for QR/address (testnet) or regular section (mainnet)
+  const depositMethodSection = document.createElement('div');
+  depositMethodSection.className = state.network === 'testnet' ? 'deposit-method-section collapsible' : 'deposit-method-section';
+
+  if (state.network === 'testnet') {
+    const toggleHeader = document.createElement('button');
+    toggleHeader.className = 'deposit-method-toggle';
+    toggleHeader.innerHTML = `
+      <span>Already have testnet DASH?</span>
+      <span class="toggle-icon">&#9662;</span>
+    `;
+    toggleHeader.setAttribute('aria-expanded', 'false');
+    depositMethodSection.appendChild(toggleHeader);
+  }
+
+  const depositMethodContent = document.createElement('div');
+  depositMethodContent.className = state.network === 'testnet' ? 'deposit-method-content collapsed' : 'deposit-method-content';
+
+  // QR section
   const qrSection = document.createElement('div');
   qrSection.className = 'qr-section';
 
@@ -406,7 +473,7 @@ function renderDepositStep(state: BridgeState): HTMLElement {
     qrContainer.innerHTML = '<div class="qr-error">QR failed</div>';
   });
 
-  div.appendChild(qrSection);
+  depositMethodContent.appendChild(qrSection);
 
   // Mnemonic display section
   if (state.mnemonic) {
@@ -437,7 +504,7 @@ function renderDepositStep(state: BridgeState): HTMLElement {
     copyBtn.textContent = 'Copy Phrase';
     mnemonicSection.appendChild(copyBtn);
 
-    div.appendChild(mnemonicSection);
+    depositMethodContent.appendChild(mnemonicSection);
   }
 
   // Address with copy
@@ -457,57 +524,9 @@ function renderDepositStep(state: BridgeState): HTMLElement {
   `;
   addressSection.appendChild(addressDisplay);
 
-  div.appendChild(addressSection);
-
-  // Faucet section (testnet only)
-  if (state.network === 'testnet' && state.depositAddress) {
-    const faucetSection = document.createElement('div');
-    faucetSection.className = 'faucet-section';
-
-    const faucetStatus = state.faucetRequestStatus || 'idle';
-
-    if (faucetStatus === 'success' && state.faucetTxid) {
-      // Success state
-      const truncatedTxid = state.faucetTxid.length > 16
-        ? `${state.faucetTxid.slice(0, 8)}...${state.faucetTxid.slice(-8)}`
-        : state.faucetTxid;
-      faucetSection.innerHTML = `
-        <div class="faucet-success">
-          <span class="faucet-checkmark">&#10003;</span>
-          <span>1 tDASH sent!</span>
-          <code class="faucet-txid" title="${state.faucetTxid}">${truncatedTxid}</code>
-        </div>
-      `;
-    } else if (faucetStatus === 'solving_pow') {
-      // Solving proof of work
-      faucetSection.innerHTML = `
-        <div class="faucet-loading">
-          <div class="faucet-spinner"></div>
-          <span>Solving proof of work...</span>
-        </div>
-      `;
-    } else if (faucetStatus === 'requesting') {
-      // Requesting funds
-      faucetSection.innerHTML = `
-        <div class="faucet-loading">
-          <div class="faucet-spinner"></div>
-          <span>Sending funds...</span>
-        </div>
-      `;
-    } else {
-      // Idle or error state - show button
-      let errorHtml = '';
-      if (faucetStatus === 'error' && state.faucetError) {
-        errorHtml = `<p class="faucet-error">${escapeHtml(state.faucetError)}</p>`;
-      }
-      faucetSection.innerHTML = `
-        <button id="request-faucet-btn" class="faucet-btn">Request Testnet Funds</button>
-        ${errorHtml}
-      `;
-    }
-
-    div.appendChild(faucetSection);
-  }
+  depositMethodContent.appendChild(addressSection);
+  depositMethodSection.appendChild(depositMethodContent);
+  div.appendChild(depositMethodSection);
 
   // Recheck section only shown after timeout
   if (state.step === 'detecting_deposit' && state.depositTimedOut) {

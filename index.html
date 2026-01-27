@@ -1736,6 +1736,21 @@
       text-align: center;
     }
 
+    /* Hero faucet section for testnet */
+    .faucet-section.faucet-hero {
+      margin-top: 24px;
+      margin-bottom: 24px;
+      padding: 24px;
+      background: linear-gradient(135deg, rgba(255, 152, 0, 0.15) 0%, rgba(255, 152, 0, 0.05) 100%);
+      border: 2px solid rgba(255, 152, 0, 0.3);
+    }
+
+    .faucet-helper {
+      color: #b0b0b0;
+      font-size: 0.95rem;
+      margin-bottom: 14px;
+    }
+
     .faucet-btn {
       background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%);
       color: #000;
@@ -1748,9 +1763,15 @@
       transition: transform 0.2s, box-shadow 0.2s;
     }
 
+    .faucet-btn.faucet-btn-hero {
+      padding: 18px 36px;
+      font-size: 1.1rem;
+      border-radius: 10px;
+    }
+
     .faucet-btn:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 4px 16px rgba(255, 152, 0, 0.4);
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(255, 152, 0, 0.4);
     }
 
     .faucet-btn:disabled {
@@ -1806,6 +1827,64 @@
       font-size: 0.85rem;
       margin-top: 10px;
       margin-bottom: 0;
+    }
+
+    /* Deposit method section (collapsible on testnet) */
+    .deposit-method-section {
+      margin-top: 16px;
+    }
+
+    .deposit-method-section.collapsible {
+      margin-top: 24px;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+      padding-top: 20px;
+    }
+
+    .deposit-method-toggle {
+      width: 100%;
+      background: transparent;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: #888;
+      padding: 14px 20px;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      transition: all 0.2s;
+    }
+
+    .deposit-method-toggle:hover {
+      background: rgba(255, 255, 255, 0.05);
+      border-color: rgba(255, 255, 255, 0.25);
+      color: #b0b0b0;
+    }
+
+    .deposit-method-toggle .toggle-icon {
+      font-size: 0.8rem;
+      transition: transform 0.2s;
+    }
+
+    .deposit-method-toggle.expanded .toggle-icon {
+      transform: rotate(180deg);
+    }
+
+    .deposit-method-content {
+      overflow: hidden;
+      transition: max-height 0.3s ease, opacity 0.3s ease, padding 0.3s ease;
+      max-height: 1000px;
+      opacity: 1;
+    }
+
+    .deposit-method-content.collapsed {
+      max-height: 0;
+      opacity: 0;
+      padding: 0;
+    }
+
+    .deposit-method-section.collapsible .deposit-method-content:not(.collapsed) {
+      padding-top: 20px;
     }
   </style>
 </head>

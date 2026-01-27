@@ -249,6 +249,18 @@ function setupEventListeners(container: HTMLElement) {
     faucetBtn.addEventListener('click', requestFaucetFunds);
   }
 
+  // Deposit method toggle (testnet collapsible section)
+  const depositToggle = container.querySelector('.deposit-method-toggle');
+  if (depositToggle) {
+    depositToggle.addEventListener('click', () => {
+      const content = container.querySelector('.deposit-method-content');
+      const isExpanded = depositToggle.getAttribute('aria-expanded') === 'true';
+      depositToggle.setAttribute('aria-expanded', String(!isExpanded));
+      content?.classList.toggle('collapsed');
+      depositToggle.classList.toggle('expanded');
+    });
+  }
+
   // Copy buttons
   container.querySelectorAll('.copy-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -1448,19 +1460,25 @@ async function requestFaucetFunds() {
 
     updateState(setFaucetSuccess(state, result.txid));
 
+    // Capture address before async delay to avoid stale state reference
+    const addressToCheck = state.depositAddress;
+
     // Quick UTXO check 250ms after faucet sends funds
     setTimeout(async () => {
-      if (state.depositAddress) {
-        try {
-          const utxos = await insightClient.getUTXOs(state.depositAddress);
-          const minAmount = 300000; // 0.003 DASH minimum
-          const sufficientUtxo = utxos.find(u => u.satoshis >= minAmount);
-          if (sufficientUtxo) {
-            updateState(setUtxoDetected(state, sufficientUtxo));
-          }
-        } catch {
-          // Ignore - regular polling will catch it
+      if (!addressToCheck) return;
+
+      // Verify we're still on the deposit step before proceeding
+      if (state.step !== 'detecting_deposit') return;
+
+      try {
+        const utxos = await insightClient.getUTXOs(addressToCheck);
+        const minAmount = 300000; // 0.003 DASH minimum
+        const sufficientUtxo = utxos.find(u => u.satoshis >= minAmount);
+        if (sufficientUtxo && state.step === 'detecting_deposit') {
+          updateState(setUtxoDetected(state, sufficientUtxo));
         }
+      } catch {
+        // Ignore - regular polling will catch it
       }
     }, 250);
 
