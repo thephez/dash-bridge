@@ -463,7 +463,7 @@ function renderEnterRecipientAddressStep(state: BridgeState): HTMLElement {
       id="recipient-address-input"
       class="recipient-address-input"
       placeholder="${prefix}"
-      value="${state.recipientPlatformAddress || ''}"
+      value="${escapeHtml(state.recipientPlatformAddress || '')}"
     />
     <p class="input-hint">A bech32m platform address (starts with ${state.network === 'testnet' ? 'tdashevo1' : 'dashevo1'})</p>
   `;
@@ -517,7 +517,7 @@ function renderDepositStep(state: BridgeState): HTMLElement {
     const truncatedAddr = state.recipientPlatformAddress.length > 20
       ? `${state.recipientPlatformAddress.slice(0, 12)}...${state.recipientPlatformAddress.slice(-6)}`
       : state.recipientPlatformAddress;
-    headline.innerHTML = `Send to <code class="inline-id">${truncatedAddr}</code>`;
+    headline.innerHTML = `Send to <code class="inline-id">${escapeHtml(truncatedAddr)}</code>`;
   } else if (isFundAddress && state.platformAddress) {
     // Fund address mode: show truncated platform address
     const truncatedAddr = state.platformAddress.length > 20
@@ -863,7 +863,7 @@ function renderCompleteStep(state: BridgeState): HTMLElement {
     addressInfo.className = 'identity-info';
     addressInfo.innerHTML = `
       <label>Recipient Address</label>
-      <code class="identity-id">${state.recipientPlatformAddress}</code>
+      <code class="identity-id">${escapeHtml(state.recipientPlatformAddress)}</code>
     `;
     div.appendChild(addressInfo);
   } else if (isFundAddress && state.platformAddress) {

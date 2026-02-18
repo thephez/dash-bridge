@@ -1557,25 +1557,52 @@ async function recheckDeposit() {
 
     updateState(setInstantLockReceived(state, islockBytes, assetLockProof));
 
-    // Step 7: Register identity
-    updateState(setStep(state, 'registering_identity'));
-
+    // Step 7: Mode-specific final operation
     const assetLockPrivateKeyWif = privateKeyToWif(
       assetLockKeyPair.privateKey,
       network
     );
 
-    const result = await registerIdentity(
-      assetLockProof,
-      assetLockPrivateKeyWif,
-      state.identityKeys,
-      state.network
-    );
-
-    updateState(setIdentityRegistered(state, result.identityId));
-
-    // Auto-download final key backup on "Save your keys" page
-    downloadKeyBackup(state);
+    if (state.mode === 'topup') {
+      updateState(setStep(state, 'topping_up'));
+      await topUpIdentity(
+        state.targetIdentityId!,
+        assetLockProof,
+        assetLockPrivateKeyWif,
+        state.network
+      );
+      updateState(setTopUpComplete(state));
+    } else if (state.mode === 'fund_address') {
+      updateState(setStep(state, 'funding_address'));
+      await fundPlatformAddress(
+        state.platformAddressPrivateKeyWif!,
+        assetLockProof,
+        assetLockPrivateKeyWif,
+        state.network
+      );
+      updateState(setFundAddressComplete(state));
+    } else if (state.mode === 'send_to_address') {
+      updateState(setStep(state, 'sending_to_address'));
+      await sendToPlatformAddress(
+        state.recipientPlatformAddress!,
+        assetLockProof,
+        assetLockPrivateKeyWif,
+        state.network
+      );
+      updateState(setSendToAddressComplete(state));
+    } else {
+      // Default: create mode — register identity
+      updateState(setStep(state, 'registering_identity'));
+      const result = await registerIdentity(
+        assetLockProof,
+        assetLockPrivateKeyWif,
+        state.identityKeys,
+        state.network
+      );
+      updateState(setIdentityRegistered(state, result.identityId));
+      // Auto-download final key backup on "Save your keys" page
+      downloadKeyBackup(state);
+    }
 
   } catch (error) {
     console.error('Bridge error:', error);
