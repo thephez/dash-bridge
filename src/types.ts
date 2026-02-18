@@ -64,7 +64,7 @@ export interface IdentityKeyConfig {
 /**
  * Bridge operation mode
  */
-export type BridgeMode = 'create' | 'topup' | 'fund_address' | 'dpns' | 'manage';
+export type BridgeMode = 'create' | 'topup' | 'fund_address' | 'send_to_address' | 'dpns' | 'manage';
 
 /**
  * DPNS identity source for standalone mode
@@ -158,6 +158,8 @@ export type BridgeStep =
   | 'topping_up'          // Top-up: calling sdk.identities.topUp()
   | 'enter_platform_address'  // Fund address: user enters platform address private key
   | 'funding_address'         // Fund address: calling sdk.addresses.fundFromAssetLock()
+  | 'enter_recipient_address' // Send to address: user enters recipient bech32m address
+  | 'sending_to_address'      // Send to address: calling sdk.addresses.fundFromAssetLock()
   | 'complete'
   | 'error'
   // DPNS username registration steps
@@ -223,6 +225,10 @@ export interface BridgeState {
   platformAddressPrivateKeyWif?: string;
   /** Fund address: derived bech32m platform address (for display) */
   platformAddress?: string;
+
+  // Send to Platform Address fields
+  /** Send to address: recipient bech32m platform address */
+  recipientPlatformAddress?: string;
 
   // DPNS username registration fields
   /** DPNS: usernames to register */

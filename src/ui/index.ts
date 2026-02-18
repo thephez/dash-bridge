@@ -8,6 +8,8 @@ export {
   setTopUpComplete,
   setPlatformAddress,
   setFundAddressComplete,
+  setRecipientPlatformAddress,
+  setSendToAddressComplete,
   setUtxoDetected,
   setTransactionSigned,
   setTransactionBroadcast,

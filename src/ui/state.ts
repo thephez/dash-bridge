@@ -90,6 +90,17 @@ export function setMode(state: BridgeState, mode: BridgeMode): BridgeState {
       platformAddressPrivateKeyWif: undefined,
       platformAddress: undefined,
     };
+  } else if (mode === 'send_to_address') {
+    // Send to platform address mode: user enters recipient bech32m address
+    return {
+      ...state,
+      step: 'enter_recipient_address',
+      mode,
+      mnemonic: undefined,
+      identityKeys: [],
+      isOneTimeKey: true,
+      recipientPlatformAddress: undefined,
+    };
   } else if (mode === 'dpns') {
     // DPNS mode: go to identity source selection
     return {
@@ -178,6 +189,29 @@ export function setPlatformAddress(
  * Set fund address complete
  */
 export function setFundAddressComplete(state: BridgeState): BridgeState {
+  return {
+    ...state,
+    step: 'complete',
+  };
+}
+
+/**
+ * Set recipient platform address for send_to_address mode
+ */
+export function setRecipientPlatformAddress(
+  state: BridgeState,
+  recipientPlatformAddress: string
+): BridgeState {
+  return {
+    ...state,
+    recipientPlatformAddress,
+  };
+}
+
+/**
+ * Set send to address complete
+ */
+export function setSendToAddressComplete(state: BridgeState): BridgeState {
   return {
     ...state,
     step: 'complete',
@@ -434,6 +468,8 @@ export function getStepDescription(step: BridgeStep): string {
     topping_up: 'Adding credits...',
     enter_platform_address: 'Fund platform address',
     funding_address: 'Funding address...',
+    enter_recipient_address: 'Send to platform address',
+    sending_to_address: 'Sending to address...',
     complete: 'Complete',
     error: 'Something went wrong',
     // DPNS steps
@@ -472,6 +508,8 @@ export function getStepProgress(step: BridgeStep): number {
     topping_up: 90,
     enter_platform_address: 10,
     funding_address: 90,
+    enter_recipient_address: 10,
+    sending_to_address: 90,
     complete: 100,
     error: 0,
     // DPNS steps
@@ -505,6 +543,7 @@ export function isProcessingStep(step: BridgeStep): boolean {
     'registering_identity',
     'topping_up',
     'funding_address',
+    'sending_to_address',
     // DPNS processing steps
     'dpns_checking',
     'dpns_registering',

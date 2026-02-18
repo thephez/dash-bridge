@@ -370,3 +370,62 @@ export async function fundPlatformAddress(
     address: platformAddr.toBech32m(network),
   };
 }
+
+/**
+ * Send credits to an arbitrary Platform address from an asset lock
+ *
+ * Unlike fundPlatformAddress which requires the private key of the destination,
+ * this function accepts any bech32m platform address as the recipient.
+ * Uses sdk.addresses.fundFromAssetLock() with an empty PlatformAddressSigner
+ * since we don't have (or need) the recipient's private key.
+ *
+ * TODO: If PlatformAddressSigner() fails without keys at runtime, this may
+ * need adjustment. The assumption is that creating NEW credits for an address
+ * does not require the recipient to sign.
+ */
+export async function sendToPlatformAddress(
+  recipientAddress: string,
+  assetLockProofHex: string,
+  assetLockPrivateKeyWif: string,
+  network: 'testnet' | 'mainnet',
+  retryOptions?: RetryOptions
+): Promise<{ success: boolean; recipientAddress: string }> {
+  const sdk = network === 'mainnet'
+    ? EvoSDK.mainnet()
+    : EvoSDK.testnet();
+
+  console.log(`Connecting to ${network}...`);
+  await withRetry(() => sdk.connect(), retryOptions);
+  console.log('Connected to Platform');
+
+  // Build the asset lock proof from hex
+  const assetLockProof = AssetLockProof.fromHex(assetLockProofHex);
+
+  // Build the asset lock private key
+  const assetLockPrivateKey = PrivateKey.fromWIF(assetLockPrivateKeyWif);
+
+  // Empty signer — recipient does not need to sign for receiving
+  const signer = new PlatformAddressSigner();
+
+  // Create output with the recipient bech32m address directly (no amount = all remaining after fees)
+  const output = new PlatformAddressOutput(recipientAddress);
+
+  console.log('Sending to platform address:', recipientAddress);
+
+  const result = await withRetry(
+    () => sdk.addresses.fundFromAssetLock({
+      assetLockProof,
+      assetLockPrivateKey,
+      outputs: [output],
+      signer,
+    }),
+    retryOptions
+  );
+
+  console.log('Send to address result:', result);
+
+  return {
+    success: true,
+    recipientAddress,
+  };
+}
