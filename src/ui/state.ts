@@ -55,15 +55,17 @@ export function setKeyPairs(
  * Set bridge mode and transition to appropriate initial step
  */
 export function setMode(state: BridgeState, mode: BridgeMode): BridgeState {
+  const clearedState = clearModeSensitiveFields(state, mode);
+
   if (mode === 'create') {
     // Create mode: generate mnemonic and identity keys
     const mnemonic = generateNewMnemonic(128);
     return {
-      ...state,
+      ...clearedState,
       step: 'configure_keys',
       mode,
       mnemonic,
-      identityKeys: generateDefaultIdentityKeysHD(state.network, mnemonic),
+      identityKeys: generateDefaultIdentityKeysHD(clearedState.network, mnemonic),
       // Clear any top-up state
       targetIdentityId: undefined,
       isOneTimeKey: undefined,
@@ -71,7 +73,7 @@ export function setMode(state: BridgeState, mode: BridgeMode): BridgeState {
   } else if (mode === 'topup') {
     // Top-up mode: no mnemonic, no identity keys
     return {
-      ...state,
+      ...clearedState,
       step: 'enter_identity',
       mode,
       mnemonic: undefined,
@@ -81,7 +83,7 @@ export function setMode(state: BridgeState, mode: BridgeMode): BridgeState {
   } else if (mode === 'fund_address') {
     // Fund platform address mode: user enters platform address private key
     return {
-      ...state,
+      ...clearedState,
       step: 'enter_platform_address',
       mode,
       mnemonic: undefined,
@@ -93,7 +95,7 @@ export function setMode(state: BridgeState, mode: BridgeMode): BridgeState {
   } else if (mode === 'send_to_address') {
     // Send to platform address mode: user enters recipient bech32m address
     return {
-      ...state,
+      ...clearedState,
       step: 'enter_recipient_address',
       mode,
       mnemonic: undefined,
@@ -104,7 +106,7 @@ export function setMode(state: BridgeState, mode: BridgeMode): BridgeState {
   } else if (mode === 'dpns') {
     // DPNS mode: go to identity source selection
     return {
-      ...state,
+      ...clearedState,
       step: 'dpns_choose_identity',
       mode,
       dpnsUsernames: [],
@@ -115,7 +117,7 @@ export function setMode(state: BridgeState, mode: BridgeMode): BridgeState {
   } else {
     // Manage mode: go to identity entry
     return {
-      ...state,
+      ...clearedState,
       step: 'manage_enter_identity',
       mode,
       // Clear any previous manage state
@@ -130,6 +132,15 @@ export function setMode(state: BridgeState, mode: BridgeMode): BridgeState {
       manageKeyValidationError: undefined,
     };
   }
+}
+
+function clearModeSensitiveFields(state: BridgeState, mode: BridgeMode): BridgeState {
+  return {
+    ...state,
+    platformAddressPrivateKeyWif: mode === 'fund_address' ? state.platformAddressPrivateKeyWif : undefined,
+    platformAddress: mode === 'fund_address' ? state.platformAddress : undefined,
+    recipientPlatformAddress: mode === 'send_to_address' ? state.recipientPlatformAddress : undefined,
+  };
 }
 
 /**

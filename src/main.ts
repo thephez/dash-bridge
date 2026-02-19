@@ -6,7 +6,7 @@ import { InsightClient } from './api/insight.js';
 import { DAPIClient } from './api/dapi.js';
 import { buildInstantAssetLockProof } from './proof/index.js';
 import { registerIdentity, topUpIdentity, updateIdentity, fundPlatformAddress, sendToPlatformAddress, AddKeyConfig } from './platform/index.js';
-import { PrivateKey, PlatformAddressSigner } from '@dashevo/evo-sdk';
+import { PrivateKey, PlatformAddress, PlatformAddressSigner } from '@dashevo/evo-sdk';
 import { privateKeyToWif, bytesToHex } from './utils/index.js';
 import {
   createInitialState,
@@ -328,7 +328,7 @@ function setupEventListeners(container: HTMLElement) {
       if (address && validatePlatformAddress(address, state.network)) {
         startSendToAddress();
       } else {
-        const prefix = state.network === 'testnet' ? 'tdashevo1' : 'dashevo1';
+        const prefix = state.network === 'testnet' ? 'tevo1' : 'evo1';
         const msg = document.getElementById('recipient-address-validation-msg');
         if (msg) {
           msg.textContent = `Please enter a valid bech32m platform address (starts with ${prefix})`;
@@ -1030,9 +1030,15 @@ function validateIdentityId(id?: string): boolean {
  * Validate platform address format (bech32m, correct network prefix)
  */
 function validatePlatformAddress(address: string, network: 'testnet' | 'mainnet'): boolean {
-  if (!address) return false;
-  const prefix = network === 'testnet' ? 'tdashevo1' : 'dashevo1';
-  return address.startsWith(prefix) && address.length > prefix.length;
+  const trimmed = address.trim();
+  if (!trimmed) return false;
+
+  try {
+    const parsed = PlatformAddress.fromBech32m(trimmed);
+    return parsed.toBech32m(network) === trimmed;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -1234,7 +1240,7 @@ async function startFundAddress() {
     updateState(setInstantLockReceived(state, islockBytes, assetLockProof));
 
     // Step 7: Fund the platform address
-    updateState(setStep(state, 'topping_up'));
+    updateState(setStep(state, 'funding_address'));
 
     const assetLockPrivateKeyWif = privateKeyToWif(
       assetLockKeyPair.privateKey,

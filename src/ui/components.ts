@@ -363,47 +363,78 @@ function renderEnterIdentityStep(state: BridgeState): HTMLElement {
 
 function renderEnterPlatformAddressStep(state: BridgeState): HTMLElement {
   const div = document.createElement('div');
-  div.className = 'enter-platform-address-step';
+  div.className = 'enter-identity-step enter-platform-address-step';
 
   const headline = document.createElement('h2');
-  headline.className = 'fund-address-headline';
   headline.textContent = 'Fund Platform Address';
   div.appendChild(headline);
 
   // Private key input
   const inputSection = document.createElement('div');
-  inputSection.className = 'platform-address-input-section';
+  inputSection.className = 'identity-input-section platform-address-input-section';
 
   const keyGroup = document.createElement('div');
   keyGroup.className = 'input-group';
-  keyGroup.innerHTML = `
-    <label class="input-label">Platform Address Private Key (WIF)</label>
-    <div class="password-input-wrapper">
-      <input
-        type="password"
-        id="platform-address-key-input"
-        class="platform-address-input"
-        placeholder="Enter your platform address private key in WIF format..."
-        value="${state.platformAddressPrivateKeyWif || ''}"
-      />
-      <button type="button" id="toggle-key-visibility-btn" class="toggle-visibility-btn" title="Show/hide key">Show</button>
-    </div>
-    <p class="input-hint">The private key for the Platform address you want to fund</p>
-  `;
+  keyGroup.innerHTML = '<label class="input-label">Platform Address Private Key (WIF)</label>';
+
+  const passwordWrapper = document.createElement('div');
+  passwordWrapper.className = 'password-input-wrapper';
+
+  const input = document.createElement('input');
+  input.type = 'password';
+  input.id = 'platform-address-key-input';
+  input.className = 'identity-id-input platform-address-input';
+  input.placeholder = 'Enter your platform address private key in WIF format...';
+  input.value = state.platformAddressPrivateKeyWif || '';
+  passwordWrapper.appendChild(input);
+
+  const toggleBtn = document.createElement('button');
+  toggleBtn.type = 'button';
+  toggleBtn.id = 'toggle-key-visibility-btn';
+  toggleBtn.className = 'toggle-visibility-btn';
+  toggleBtn.title = 'Show/hide key';
+  toggleBtn.textContent = 'Show';
+  passwordWrapper.appendChild(toggleBtn);
+
+  keyGroup.appendChild(passwordWrapper);
+
+  const hint = document.createElement('p');
+  hint.className = 'input-hint';
+  hint.textContent = 'The private key for the Platform address you want to fund';
+  keyGroup.appendChild(hint);
   inputSection.appendChild(keyGroup);
 
   // Derived address display (shown after key is entered)
   if (state.platformAddress) {
     const addressDisplay = document.createElement('div');
     addressDisplay.className = 'derived-address-display';
-    addressDisplay.innerHTML = `
-      <label class="input-label">Derived Platform Address</label>
-      <div class="address-display">
-        <code class="address">${state.platformAddress}</code>
-        <button class="copy-btn" data-copy="${state.platformAddress}">Copy</button>
-      </div>
-      <p class="input-hint success-hint">Confirm this is the address you want to fund</p>
-    `;
+
+    const label = document.createElement('label');
+    label.className = 'input-label';
+    label.textContent = 'Derived Platform Address';
+    addressDisplay.appendChild(label);
+
+    const addressRow = document.createElement('div');
+    addressRow.className = 'address-display';
+
+    const code = document.createElement('code');
+    code.className = 'address';
+    code.textContent = state.platformAddress;
+    addressRow.appendChild(code);
+
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'copy-btn';
+    copyBtn.dataset.copy = state.platformAddress;
+    copyBtn.textContent = 'Copy';
+    addressRow.appendChild(copyBtn);
+
+    addressDisplay.appendChild(addressRow);
+
+    const confirmHint = document.createElement('p');
+    confirmHint.className = 'input-hint success-hint';
+    confirmHint.textContent = 'Confirm this is the address you want to fund';
+    addressDisplay.appendChild(confirmHint);
+
     inputSection.appendChild(addressDisplay);
   }
 
@@ -441,32 +472,36 @@ function renderEnterPlatformAddressStep(state: BridgeState): HTMLElement {
 
 function renderEnterRecipientAddressStep(state: BridgeState): HTMLElement {
   const div = document.createElement('div');
-  div.className = 'enter-recipient-address-step';
+  div.className = 'enter-identity-step enter-recipient-address-step';
 
   const headline = document.createElement('h2');
-  headline.className = 'send-to-address-headline';
   headline.textContent = 'Send to Platform Address';
   div.appendChild(headline);
 
   // Recipient address input
   const inputSection = document.createElement('div');
-  inputSection.className = 'recipient-address-input-section';
+  inputSection.className = 'identity-input-section recipient-address-input-section';
 
   const addrGroup = document.createElement('div');
   addrGroup.className = 'input-group';
 
-  const prefix = state.network === 'testnet' ? 'tdashevo1...' : 'dashevo1...';
-  addrGroup.innerHTML = `
-    <label class="input-label">Recipient Platform Address</label>
-    <input
-      type="text"
-      id="recipient-address-input"
-      class="recipient-address-input"
-      placeholder="${prefix}"
-      value="${escapeHtml(state.recipientPlatformAddress || '')}"
-    />
-    <p class="input-hint">A bech32m platform address (starts with ${state.network === 'testnet' ? 'tdashevo1' : 'dashevo1'})</p>
-  `;
+  const prefix = state.network === 'testnet' ? 'tevo1...' : 'evo1...';
+  const prefixShort = state.network === 'testnet' ? 'tevo1' : 'evo1';
+  addrGroup.innerHTML = '<label class="input-label">Recipient Platform Address</label>';
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.id = 'recipient-address-input';
+  input.className = 'identity-id-input recipient-address-input';
+  input.placeholder = prefix;
+  input.value = state.recipientPlatformAddress || '';
+  addrGroup.appendChild(input);
+
+  const hint = document.createElement('p');
+  hint.className = 'input-hint';
+  hint.textContent = `A bech32m platform address (starts with ${prefixShort})`;
+  addrGroup.appendChild(hint);
+
   inputSection.appendChild(addrGroup);
   div.appendChild(inputSection);
 
@@ -523,7 +558,7 @@ function renderDepositStep(state: BridgeState): HTMLElement {
     const truncatedAddr = state.platformAddress.length > 20
       ? `${state.platformAddress.slice(0, 12)}...${state.platformAddress.slice(-6)}`
       : state.platformAddress;
-    headline.innerHTML = `Fund <code class="inline-id">${truncatedAddr}</code>`;
+    headline.innerHTML = `Fund <code class="inline-id">${escapeHtml(truncatedAddr)}</code>`;
   } else if (isTopUp && state.targetIdentityId) {
     // Truncate identity ID for display
     const truncatedId = state.targetIdentityId.length > 12
@@ -871,7 +906,7 @@ function renderCompleteStep(state: BridgeState): HTMLElement {
     addressInfo.className = 'identity-info';
     addressInfo.innerHTML = `
       <label>Platform Address</label>
-      <code class="identity-id">${state.platformAddress}</code>
+      <code class="identity-id">${escapeHtml(state.platformAddress)}</code>
     `;
     div.appendChild(addressInfo);
   } else {
