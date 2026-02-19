@@ -285,6 +285,8 @@ export interface AddKeyConfig {
   publicKeyHex?: string;
   /** For imported keys: base64-encoded public key data */
   publicKeyBase64?: string;
+  /** For generated keys: WIF-encoded private key (added to signer for update transitions) */
+  privateKeyWif?: string;
 }
 
 /**
@@ -328,6 +330,13 @@ export async function updateIdentity(
 
     const signer = new IdentitySigner();
     signer.addKeyFromWif(privateKeyWif);
+
+    // Add private keys for new keys being added (SDK needs them to sign the transition)
+    for (const key of addPublicKeys) {
+      if (key.privateKeyWif) {
+        signer.addKeyFromWif(key.privateKeyWif);
+      }
+    }
 
     const existingKeys = identity.publicKeys;
     const maxKeyId = existingKeys.reduce((max: number, key: { keyId: number }) => Math.max(max, key.keyId), -1);
