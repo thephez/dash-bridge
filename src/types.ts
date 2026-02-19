@@ -64,7 +64,7 @@ export interface IdentityKeyConfig {
 /**
  * Bridge operation mode
  */
-export type BridgeMode = 'create' | 'topup' | 'dpns' | 'manage';
+export type BridgeMode = 'create' | 'topup' | 'send_to_address' | 'dpns' | 'manage';
 
 /**
  * DPNS identity source for standalone mode
@@ -156,6 +156,8 @@ export type BridgeStep =
   | 'waiting_islock'
   | 'registering_identity'
   | 'topping_up'          // Top-up: calling sdk.identities.topUp()
+  | 'enter_recipient_address' // Send to address: user enters recipient bech32m address
+  | 'sending_to_address'      // Send to address: calling sdk.addresses.fundFromAssetLock()
   | 'complete'
   | 'error'
   // DPNS username registration steps
@@ -186,6 +188,12 @@ export interface RetryStatus {
   lastError?: string;
 }
 
+export interface AssetLockProofData {
+  transactionBytes: Uint8Array;
+  instantLockBytes: Uint8Array;
+  outputIndex: number;
+}
+
 export interface BridgeState {
   step: BridgeStep;
   network: 'testnet' | 'mainnet';
@@ -204,7 +212,7 @@ export interface BridgeState {
   signedTxHex?: string;
   txid?: string;
   instantLockBytes?: Uint8Array;
-  assetLockProof?: string;
+  assetLockProof?: AssetLockProofData;
   identityId?: string;
   error?: Error;
   /** True when deposit detection timed out and needs manual recheck */
@@ -213,8 +221,11 @@ export interface BridgeState {
   detectedDepositAmount?: number;
   /** Target identity ID for top-up (user-provided) */
   targetIdentityId?: string;
-  /** Whether asset lock key is a one-time random key (for top-up) vs HD-derived */
+  /** Whether asset lock key is a one-time random key (for top-up/send_to_address) vs HD-derived */
   isOneTimeKey?: boolean;
+
+  /** Send to address: recipient bech32m platform address */
+  recipientPlatformAddress?: string;
 
   // DPNS username registration fields
   /** DPNS: usernames to register */
