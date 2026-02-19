@@ -6,7 +6,8 @@ import { InsightClient } from './api/insight.js';
 import { DAPIClient } from './api/dapi.js';
 import { buildInstantAssetLockProof } from './proof/index.js';
 import { registerIdentity, topUpIdentity, updateIdentity, fundPlatformAddress, sendToPlatformAddress, AddKeyConfig } from './platform/index.js';
-import { PrivateKey, PlatformAddress, PlatformAddressSigner } from '@dashevo/evo-sdk';
+import { PrivateKey, PlatformAddressSigner } from '@dashevo/evo-sdk';
+import { bech32m } from '@scure/base';
 import { privateKeyToWif, bytesToHex } from './utils/index.js';
 import {
   createInitialState,
@@ -328,7 +329,7 @@ function setupEventListeners(container: HTMLElement) {
       if (address && validatePlatformAddress(address, state.network)) {
         startSendToAddress();
       } else {
-        const prefix = state.network === 'testnet' ? 'tevo1' : 'evo1';
+        const prefix = `${getNetwork(state.network).platformHrp}1`;
         const msg = document.getElementById('recipient-address-validation-msg');
         if (msg) {
           msg.textContent = `Please enter a valid bech32m platform address (starts with ${prefix})`;
@@ -1034,8 +1035,8 @@ function validatePlatformAddress(address: string, network: 'testnet' | 'mainnet'
   if (!trimmed) return false;
 
   try {
-    const parsed = PlatformAddress.fromBech32m(trimmed);
-    return parsed.toBech32m(network) === trimmed;
+    const decoded = bech32m.decode(trimmed as `${string}1${string}`);
+    return decoded.prefix === getNetwork(network).platformHrp;
   } catch {
     return false;
   }

@@ -7,7 +7,6 @@ import {
   IdentitySigner,
   PrivateKey,
   PlatformAddressSigner,
-  PlatformAddressOutput,
 } from '@dashevo/evo-sdk';
 import { sha256 } from '@noble/hashes/sha256';
 import { ripemd160 } from '@noble/hashes/ripemd160';
@@ -426,17 +425,19 @@ export async function fundPlatformAddress(
   const addressPrivateKey = PrivateKey.fromWIF(platformAddressPrivateKeyWif);
   const platformAddr = signer.addKey(addressPrivateKey);
 
-  // Create output (no amount = send all remaining after fees)
-  const output = new PlatformAddressOutput(platformAddr);
+  // Pass output as a plain object — the WASM serde deserializer expects
+  // { address: string } not a PlatformAddressOutput WASM instance
+  const addressBech32m = platformAddr.toBech32m(network);
 
-  console.log('Funding platform address:', platformAddr.toBech32m(network));
+  console.log('Funding platform address:', addressBech32m);
 
   const result = await withRetry(
     () => sdk.addresses.fundFromAssetLock({
       assetLockProof,
       assetLockPrivateKey,
-      outputs: [output],
+      outputs: [{ address: addressBech32m }] as any,
       signer,
+      feeStrategy: [{ type: 'reduceOutput', index: 0 }] as any,
     }),
     retryOptions
   );
@@ -508,17 +509,17 @@ export async function sendToPlatformAddress(
   // Empty signer — recipient does not need to sign for receiving
   const signer = new PlatformAddressSigner();
 
-  // Create output with the recipient bech32m address directly (no amount = all remaining after fees)
-  const output = new PlatformAddressOutput(recipientAddress);
-
   console.log('Sending to platform address:', recipientAddress);
 
+  // Pass output as a plain object — the WASM serde deserializer expects
+  // { address: string } not a PlatformAddressOutput WASM instance
   const result = await withRetry(
     () => sdk.addresses.fundFromAssetLock({
       assetLockProof,
       assetLockPrivateKey,
-      outputs: [output],
+      outputs: [{ address: recipientAddress }] as any,
       signer,
+      feeStrategy: [{ type: 'reduceOutput', index: 0 }] as any,
     }),
     retryOptions
   );
