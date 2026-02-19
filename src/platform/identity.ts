@@ -364,6 +364,25 @@ export async function fundPlatformAddress(
   );
 
   console.log('Fund address result:', result);
+  if (result == null) {
+    throw new Error('Failed to fund platform address: fundFromAssetLock returned no result');
+  }
+  if (typeof result === 'object') {
+    const maybeResult = result as {
+      success?: unknown;
+      error?: unknown;
+      message?: unknown;
+    };
+
+    if (
+      maybeResult.success === false
+      || maybeResult.error !== undefined
+      || maybeResult.message !== undefined
+    ) {
+      const details = maybeResult.error ?? maybeResult.message ?? 'unknown error';
+      throw new Error(`Failed to fund platform address: ${String(details)}`);
+    }
+  }
 
   return {
     success: true,
@@ -423,6 +442,25 @@ export async function sendToPlatformAddress(
   );
 
   console.log('Send to address result:', result);
+  if (result == null) {
+    throw new Error('Failed to send to platform address: fundFromAssetLock returned no result');
+  }
+  if (typeof result === 'object') {
+    const maybeResult = result as {
+      success?: unknown;
+      error?: unknown;
+      message?: unknown;
+    };
+
+    if (
+      maybeResult.success === false
+      || maybeResult.error !== undefined
+      || maybeResult.message !== undefined
+    ) {
+      const details = maybeResult.error ?? maybeResult.message ?? 'unknown error';
+      throw new Error(`Failed to send to platform address: ${String(details)}`);
+    }
+  }
 
   return {
     success: true,
