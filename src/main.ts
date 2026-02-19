@@ -5,8 +5,7 @@ import { createAssetLockTransaction, serializeTransaction } from './transaction/
 import { InsightClient } from './api/insight.js';
 import { DAPIClient } from './api/dapi.js';
 import { buildInstantAssetLockProof } from './proof/index.js';
-import { registerIdentity, topUpIdentity, updateIdentity, fundPlatformAddress, sendToPlatformAddress, AddKeyConfig } from './platform/index.js';
-import { PrivateKey, PlatformAddressSigner } from '@dashevo/evo-sdk';
+import { registerIdentity, topUpIdentity, updateIdentity, sendToPlatformAddress, AddKeyConfig } from './platform/index.js';
 import { bech32m } from '@scure/base';
 import { privateKeyToWif, bytesToHex } from './utils/index.js';
 import {
@@ -17,8 +16,6 @@ import {
   setTargetIdentityId,
   setOneTimeKeyPair,
   setTopUpComplete,
-  setPlatformAddress,
-  setFundAddressComplete,
   setRecipientPlatformAddress,
   setSendToAddressComplete,
   setUtxoDetected,
@@ -208,15 +205,7 @@ function setupEventListeners(container: HTMLElement) {
     });
   }
 
-  // Fund Platform Address mode button (init page)
-  const modeFundAddressBtn = container.querySelector('#mode-fund-address-btn');
-  if (modeFundAddressBtn) {
-    modeFundAddressBtn.addEventListener('click', () => {
-      updateState(setMode(state, 'fund_address'));
-    });
-  }
-
-  // Send to Platform Address mode button (init page)
+  // Platform Address mode button (init page)
   const modeSendToAddressBtn = container.querySelector('#mode-send-to-address-btn');
   if (modeSendToAddressBtn) {
     modeSendToAddressBtn.addEventListener('click', () => {
@@ -224,7 +213,7 @@ function setupEventListeners(container: HTMLElement) {
     });
   }
 
-  // Back button (configure keys or enter identity -> init)
+  // Back button (configure keys, enter identity, enter recipient address -> init)
   const backBtn = container.querySelector('#back-btn');
   if (backBtn) {
     backBtn.addEventListener('click', () => {
@@ -249,65 +238,6 @@ function setupEventListeners(container: HTMLElement) {
         startTopUp();
       } else {
         showValidationError('Please enter a valid identity ID (44 character Base58 string)');
-      }
-    });
-  }
-
-  // Platform address private key input - validate on blur or paste
-  const platformAddressKeyInput = container.querySelector('#platform-address-key-input');
-  if (platformAddressKeyInput) {
-    const validatePlatformKey = () => {
-      const input = platformAddressKeyInput as HTMLInputElement;
-      const privateKeyWif = input.value.trim();
-
-      if (!privateKeyWif) {
-        updateState(setPlatformAddress(state, '', ''));
-        return;
-      }
-
-      try {
-        const privKey = PrivateKey.fromWIF(privateKeyWif);
-        const signer = new PlatformAddressSigner();
-        const platformAddr = signer.addKey(privKey);
-        const bech32mAddress = platformAddr.toBech32m(state.network);
-
-        updateState(setPlatformAddress(state, privateKeyWif, bech32mAddress));
-      } catch (error) {
-        // Show validation error
-        const msg = document.getElementById('platform-address-validation-msg');
-        if (msg) {
-          msg.textContent = 'Invalid private key format. Please enter a valid WIF key.';
-          msg.classList.remove('hidden');
-        }
-        updateState(setPlatformAddress(state, '', ''));
-      }
-    };
-
-    platformAddressKeyInput.addEventListener('blur', validatePlatformKey);
-    platformAddressKeyInput.addEventListener('paste', () => {
-      setTimeout(validatePlatformKey, 50);
-    });
-  }
-
-  // Toggle key visibility button
-  const toggleVisibilityBtn = container.querySelector('#toggle-key-visibility-btn');
-  if (toggleVisibilityBtn) {
-    toggleVisibilityBtn.addEventListener('click', () => {
-      const input = container.querySelector('#platform-address-key-input') as HTMLInputElement;
-      if (input) {
-        const isPassword = input.type === 'password';
-        input.type = isPassword ? 'text' : 'password';
-        toggleVisibilityBtn.textContent = isPassword ? 'Hide' : 'Show';
-      }
-    });
-  }
-
-  // Continue fund address button
-  const continueFundAddressBtn = container.querySelector('#continue-fund-address-btn');
-  if (continueFundAddressBtn) {
-    continueFundAddressBtn.addEventListener('click', () => {
-      if (state.platformAddressPrivateKeyWif && state.platformAddress) {
-        startFundAddress();
       }
     });
   }
@@ -1162,108 +1092,6 @@ async function startTopUp() {
 }
 
 /**
- * Start the fund-platform-address process (asset lock → fund platform address)
- */
-async function startFundAddress() {
-  try {
-    const network = getNetwork(state.network);
-
-    // Step 1: Generate random one-time key pair (NOT HD-derived)
-    updateState(setStep(state, 'generating_keys'));
-
-    const assetLockKeyPair = generateKeyPair();
-    const depositAddress = publicKeyToAddress(assetLockKeyPair.publicKey, network);
-
-    const stateWithKeys = setOneTimeKeyPair(state, assetLockKeyPair, depositAddress);
-    updateState(stateWithKeys);
-
-    // Auto-download key backup for safety
-    downloadKeyBackup(stateWithKeys);
-
-    // Step 2: Wait for deposit
-    updateState(setStep(stateWithKeys, 'detecting_deposit'));
-
-    const minAmount = 300000; // 0.003 DASH minimum
-    const depositResult = await insightClient.waitForUtxo(
-      depositAddress,
-      minAmount,
-      120000,
-      3000
-    );
-
-    if (!depositResult.utxo) {
-      updateState(setDepositTimedOut(state, true, depositResult.totalAmount));
-      return;
-    }
-
-    const utxo = depositResult.utxo;
-    updateState(setUtxoDetected(state, utxo));
-
-    // Step 3: Build transaction
-    updateState(setStep(state, 'building_transaction'));
-
-    const tx = createAssetLockTransaction(
-      utxo,
-      assetLockKeyPair.publicKey,
-      BigInt(network.minFee)
-    );
-
-    // Step 4: Sign transaction
-    updateState(setStep(state, 'signing_transaction'));
-
-    const signedTx = await signTransaction(
-      tx,
-      [utxo],
-      assetLockKeyPair.privateKey,
-      assetLockKeyPair.publicKey
-    );
-
-    const signedTxBytes = serializeTransaction(signedTx);
-    const signedTxHex = bytesToHex(signedTxBytes);
-
-    updateState(setTransactionSigned(state, signedTxHex));
-
-    // Step 5: Broadcast transaction
-    const txid = await insightClient.broadcastTransaction(signedTxHex);
-    updateState(setTransactionBroadcast(state, txid));
-
-    // Step 6: Wait for InstantSend lock
-    updateState(setStep(state, 'waiting_islock'));
-
-    const islockBytes = await dapiClient.waitForInstantSendLock(txid, 60000);
-
-    const assetLockProof = buildInstantAssetLockProof(
-      signedTxBytes,
-      islockBytes,
-      0
-    );
-
-    updateState(setInstantLockReceived(state, islockBytes, assetLockProof));
-
-    // Step 7: Fund the platform address
-    updateState(setStep(state, 'funding_address'));
-
-    const assetLockPrivateKeyWif = privateKeyToWif(
-      assetLockKeyPair.privateKey,
-      network
-    );
-
-    await fundPlatformAddress(
-      state.platformAddressPrivateKeyWif!,
-      assetLockProof,
-      assetLockPrivateKeyWif,
-      state.network
-    );
-
-    updateState(setFundAddressComplete(state));
-
-  } catch (error) {
-    console.error('Fund platform address error:', error);
-    updateState(setError(state, error instanceof Error ? error : new Error(String(error))));
-  }
-}
-
-/**
  * Start the send-to-platform-address process (asset lock → send to recipient address)
  */
 async function startSendToAddress() {
@@ -1579,15 +1407,6 @@ async function recheckDeposit() {
         state.network
       );
       updateState(setTopUpComplete(state));
-    } else if (state.mode === 'fund_address') {
-      updateState(setStep(state, 'funding_address'));
-      await fundPlatformAddress(
-        state.platformAddressPrivateKeyWif!,
-        assetLockProof,
-        assetLockPrivateKeyWif,
-        state.network
-      );
-      updateState(setFundAddressComplete(state));
     } else if (state.mode === 'send_to_address') {
       updateState(setStep(state, 'sending_to_address'));
       await sendToPlatformAddress(

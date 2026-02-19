@@ -10,7 +10,6 @@ export {
   registerIdentity,
   topUpIdentity,
   updateIdentity,
-  fundPlatformAddress,
   sendToPlatformAddress,
 } from './identity.js';
 

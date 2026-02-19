@@ -81,18 +81,6 @@ export function setMode(state: BridgeState, mode: BridgeMode): BridgeState {
       identityKeys: [],
       isOneTimeKey: true,
     };
-  } else if (mode === 'fund_address') {
-    // Fund platform address mode: user enters platform address private key
-    return {
-      ...clearedState,
-      step: 'enter_platform_address',
-      mode,
-      mnemonic: undefined,
-      identityKeys: [],
-      isOneTimeKey: true,
-      platformAddressPrivateKeyWif: undefined,
-      platformAddress: undefined,
-    };
   } else if (mode === 'send_to_address') {
     // Send to platform address mode: user enters recipient bech32m address
     return {
@@ -138,8 +126,6 @@ export function setMode(state: BridgeState, mode: BridgeMode): BridgeState {
 function clearModeSensitiveFields(state: BridgeState, mode: BridgeMode): BridgeState {
   return {
     ...state,
-    platformAddressPrivateKeyWif: mode === 'fund_address' ? state.platformAddressPrivateKeyWif : undefined,
-    platformAddress: mode === 'fund_address' ? state.platformAddress : undefined,
     recipientPlatformAddress: mode === 'send_to_address' ? state.recipientPlatformAddress : undefined,
   };
 }
@@ -179,31 +165,6 @@ export function setTopUpComplete(state: BridgeState): BridgeState {
     ...state,
     step: 'complete',
     identityId: state.targetIdentityId, // Use target identity ID on completion
-  };
-}
-
-/**
- * Set platform address private key and derived address for fund_address mode
- */
-export function setPlatformAddress(
-  state: BridgeState,
-  privateKeyWif: string,
-  platformAddress: string
-): BridgeState {
-  return {
-    ...state,
-    platformAddressPrivateKeyWif: privateKeyWif,
-    platformAddress,
-  };
-}
-
-/**
- * Set fund address complete
- */
-export function setFundAddressComplete(state: BridgeState): BridgeState {
-  return {
-    ...state,
-    step: 'complete',
   };
 }
 
@@ -478,8 +439,6 @@ export function getStepDescription(step: BridgeStep): string {
     waiting_islock: 'Confirming...',
     registering_identity: 'Creating identity...',
     topping_up: 'Adding credits...',
-    enter_platform_address: 'Fund platform address',
-    funding_address: 'Funding address...',
     enter_recipient_address: 'Send to platform address',
     sending_to_address: 'Sending to address...',
     complete: 'Complete',
@@ -518,8 +477,6 @@ export function getStepProgress(step: BridgeStep): number {
     waiting_islock: 80,
     registering_identity: 90,
     topping_up: 90,
-    enter_platform_address: 10,
-    funding_address: 90,
     enter_recipient_address: 10,
     sending_to_address: 90,
     complete: 100,
@@ -554,7 +511,6 @@ export function isProcessingStep(step: BridgeStep): boolean {
     'waiting_islock',
     'registering_identity',
     'topping_up',
-    'funding_address',
     'sending_to_address',
     // DPNS processing steps
     'dpns_checking',
