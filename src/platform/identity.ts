@@ -175,9 +175,9 @@ export async function registerIdentity(
 
     const publicKey = new IdentityPublicKey({
       keyId: key.id,
-      purpose: key.purpose,
-      securityLevel: key.securityLevel,
-      keyType: key.keyType,
+      purpose: key.purpose.toLowerCase(),
+      securityLevel: key.securityLevel.toLowerCase(),
+      keyType: key.keyType.toLowerCase(),
       isReadOnly: false,
       data: keyBytes,
     });
@@ -357,9 +357,9 @@ export async function updateIdentity(
 
       return new IdentityPublicKeyInCreation({
         keyId: maxKeyId + index + 1,
-        purpose: key.purpose,
-        securityLevel: key.securityLevel,
-        keyType: key.keyType,
+        purpose: key.purpose.toLowerCase(),
+        securityLevel: key.securityLevel.toLowerCase(),
+        keyType: key.keyType.toLowerCase(),
         isReadOnly: false,
         data: keyDataBytes,
       });
