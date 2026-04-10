@@ -812,9 +812,10 @@ function renderCompleteStep(state: BridgeState): HTMLElement {
 
 /** Build a full diagnostic object from the error state for dev troubleshooting */
 function buildErrorDiagnostics(state: BridgeState): Record<string, unknown> {
+  const errorCode = state.errorCode ?? ErrorCodes.UNKNOWN;
   const diag: Record<string, unknown> = {
-    errorCode: state.errorCode ?? ErrorCodes.UNKNOWN,
-    errorLabel: ErrorCodeLabels[state.errorCode ?? ErrorCodes.UNKNOWN] ?? 'Unknown error',
+    errorCode,
+    errorLabel: ErrorCodeLabels[errorCode] ?? 'Unknown error',
     errorStep: state.errorStep ?? null,
     message: state.error?.message ?? 'An unknown error occurred',
     stack: state.error?.stack ?? null,
@@ -871,24 +872,24 @@ function renderErrorStep(state: BridgeState): HTMLElement {
   div.className = 'error-step';
 
   const diag = buildErrorDiagnostics(state);
-  const errorCode = diag.errorCode as string;
-  const errorLabel = diag.errorLabel as string;
-  const errorMessage = diag.message as string;
+  const errorCode = String(diag.errorCode);
+  const errorLabel = String(diag.errorLabel);
+  const errorMessage = String(diag.message);
   const failedStep = state.errorStep ? getStepDescription(state.errorStep) : undefined;
 
   const failedStepHtml = failedStep
     ? `<p class="error-failed-step">Failed during: ${escapeHtml(failedStep)}</p>`
     : '';
 
-  // Build a concise technical summary for the collapsible section
+  // Build a concise technical summary from the diagnostic object
   const techLines: string[] = [];
-  if (state.errorStep) techLines.push(`Step: ${state.errorStep}`);
-  if (state.depositAddress) techLines.push(`Deposit: ${state.depositAddress}`);
-  if (state.txid) techLines.push(`TxID: ${state.txid}`);
-  if (state.identityId) techLines.push(`Identity: ${state.identityId}`);
-  if (state.targetIdentityId) techLines.push(`Target Identity: ${state.targetIdentityId}`);
-  if (state.recipientPlatformAddress) techLines.push(`Recipient: ${state.recipientPlatformAddress}`);
-  if (state.error?.stack) techLines.push(`\nStack Trace:\n${state.error.stack}`);
+  if (diag.errorStep) techLines.push(`Step: ${diag.errorStep}`);
+  if (diag.depositAddress) techLines.push(`Deposit: ${diag.depositAddress}`);
+  if (diag.txid) techLines.push(`TxID: ${diag.txid}`);
+  if (diag.identityId) techLines.push(`Identity: ${diag.identityId}`);
+  if (diag.targetIdentityId) techLines.push(`Target Identity: ${diag.targetIdentityId}`);
+  if (diag.recipientPlatformAddress) techLines.push(`Recipient: ${diag.recipientPlatformAddress}`);
+  if (diag.stack) techLines.push(`\nStack Trace:\n${diag.stack}`);
 
   const techDetailsHtml = techLines.length > 0 ? `
     <details class="error-technical">
