@@ -825,6 +825,9 @@ function buildErrorDiagnostics(state: BridgeState): Record<string, unknown> {
   };
 
   // Transaction context — critical for tracking on-chain state
+  // NOTE: signedTxHex is intentionally excluded — if the error occurred before
+  // broadcast, a signed tx in a bug report lets anyone steal the user's funds.
+  // txid + UTXO data is sufficient for on-chain lookup.
   if (state.depositAddress) diag.depositAddress = state.depositAddress;
   if (state.txid) diag.txid = state.txid;
   if (state.depositAmount !== undefined) diag.depositAmount = String(state.depositAmount);
@@ -835,7 +838,6 @@ function buildErrorDiagnostics(state: BridgeState): Record<string, unknown> {
       satoshis: state.detectedUtxo.satoshis,
     };
   }
-  if (state.signedTxHex) diag.signedTxHex = state.signedTxHex;
 
   // Identity context
   if (state.identityId) diag.identityId = state.identityId;
@@ -852,9 +854,19 @@ function buildErrorDiagnostics(state: BridgeState): Record<string, unknown> {
     }));
   }
   if (state.dpnsPublicKeyId !== undefined) diag.dpnsPublicKeyId = state.dpnsPublicKeyId;
+  if (state.dpnsRegistrationProgress !== undefined) diag.dpnsRegistrationProgress = state.dpnsRegistrationProgress;
+  if (state.dpnsResults?.length) {
+    diag.dpnsResults = state.dpnsResults.map(r => ({
+      label: r.label,
+      success: r.success,
+      error: r.error ?? null,
+      isContested: r.isContested,
+    }));
+  }
 
   // Identity management context
   if (state.manageSigningKeyInfo) diag.manageSigningKeyInfo = state.manageSigningKeyInfo;
+  // Count only — ManageNewKeyConfig objects contain private key material
   if (state.manageKeysToAdd?.length) diag.manageKeysToAddCount = state.manageKeysToAdd.length;
   if (state.manageKeyIdsToDisable?.length) diag.manageKeyIdsToDisable = state.manageKeyIdsToDisable;
 
