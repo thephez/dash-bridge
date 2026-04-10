@@ -851,6 +851,9 @@ function renderErrorStep(state: BridgeState): HTMLElement {
       navigator.clipboard.writeText(details).then(() => {
         copyBtn.textContent = 'Copied!';
         setTimeout(() => { copyBtn.textContent = 'Copy Error Details'; }, 2000);
+      }).catch(() => {
+        copyBtn.textContent = 'Copy failed';
+        setTimeout(() => { copyBtn.textContent = 'Copy Error Details'; }, 2000);
       });
     });
   }
