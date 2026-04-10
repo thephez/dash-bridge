@@ -810,18 +810,92 @@ function renderCompleteStep(state: BridgeState): HTMLElement {
   return div;
 }
 
+/** Build a full diagnostic object from the error state for dev troubleshooting */
+function buildErrorDiagnostics(state: BridgeState): Record<string, unknown> {
+  const diag: Record<string, unknown> = {
+    errorCode: state.errorCode ?? ErrorCodes.UNKNOWN,
+    errorLabel: ErrorCodeLabels[state.errorCode ?? ErrorCodes.UNKNOWN] ?? 'Unknown error',
+    errorStep: state.errorStep ?? null,
+    message: state.error?.message ?? 'An unknown error occurred',
+    stack: state.error?.stack ?? null,
+    network: state.network,
+    mode: state.mode,
+    timestamp: new Date().toISOString(),
+  };
+
+  // Transaction context — critical for tracking on-chain state
+  if (state.depositAddress) diag.depositAddress = state.depositAddress;
+  if (state.txid) diag.txid = state.txid;
+  if (state.depositAmount !== undefined) diag.depositAmount = String(state.depositAmount);
+  if (state.detectedUtxo) {
+    diag.utxo = {
+      txid: state.detectedUtxo.txid,
+      vout: state.detectedUtxo.vout,
+      satoshis: state.detectedUtxo.satoshis,
+    };
+  }
+  if (state.signedTxHex) diag.signedTxHex = state.signedTxHex;
+
+  // Identity context
+  if (state.identityId) diag.identityId = state.identityId;
+  if (state.targetIdentityId) diag.targetIdentityId = state.targetIdentityId;
+  if (state.recipientPlatformAddress) diag.recipientPlatformAddress = state.recipientPlatformAddress;
+
+  // DPNS context
+  if (state.dpnsUsernames?.length) {
+    diag.dpnsUsernames = state.dpnsUsernames.map(u => ({
+      label: u.label,
+      status: u.status,
+      isAvailable: u.isAvailable ?? null,
+      isContested: u.isContested ?? null,
+    }));
+  }
+  if (state.dpnsPublicKeyId !== undefined) diag.dpnsPublicKeyId = state.dpnsPublicKeyId;
+
+  // Identity management context
+  if (state.manageSigningKeyInfo) diag.manageSigningKeyInfo = state.manageSigningKeyInfo;
+  if (state.manageKeysToAdd?.length) diag.manageKeysToAddCount = state.manageKeysToAdd.length;
+  if (state.manageKeyIdsToDisable?.length) diag.manageKeyIdsToDisable = state.manageKeyIdsToDisable;
+
+  // Retry state
+  if (state.retryStatus) diag.retryStatus = state.retryStatus;
+
+  // Identity keys count (not the keys themselves)
+  if (state.identityKeys.length) diag.identityKeysCount = state.identityKeys.length;
+
+  return diag;
+}
+
 function renderErrorStep(state: BridgeState): HTMLElement {
   const div = document.createElement('div');
   div.className = 'error-step';
 
-  const errorCode = state.errorCode ?? ErrorCodes.UNKNOWN;
-  const errorLabel = ErrorCodeLabels[errorCode] ?? 'Unknown error';
+  const diag = buildErrorDiagnostics(state);
+  const errorCode = diag.errorCode as string;
+  const errorLabel = diag.errorLabel as string;
+  const errorMessage = diag.message as string;
   const failedStep = state.errorStep ? getStepDescription(state.errorStep) : undefined;
-  const errorMessage = state.error?.message || 'An unknown error occurred';
 
   const failedStepHtml = failedStep
     ? `<p class="error-failed-step">Failed during: ${escapeHtml(failedStep)}</p>`
     : '';
+
+  // Build a concise technical summary for the collapsible section
+  const techLines: string[] = [];
+  if (state.errorStep) techLines.push(`Step: ${state.errorStep}`);
+  if (state.depositAddress) techLines.push(`Deposit: ${state.depositAddress}`);
+  if (state.txid) techLines.push(`TxID: ${state.txid}`);
+  if (state.identityId) techLines.push(`Identity: ${state.identityId}`);
+  if (state.targetIdentityId) techLines.push(`Target Identity: ${state.targetIdentityId}`);
+  if (state.recipientPlatformAddress) techLines.push(`Recipient: ${state.recipientPlatformAddress}`);
+  if (state.error?.stack) techLines.push(`\nStack Trace:\n${state.error.stack}`);
+
+  const techDetailsHtml = techLines.length > 0 ? `
+    <details class="error-technical">
+      <summary>Technical Details</summary>
+      <pre class="error-technical-content">${escapeHtml(techLines.join('\n'))}</pre>
+    </details>
+  ` : '';
 
   div.innerHTML = `
     <div class="error-icon">❌</div>
@@ -830,6 +904,7 @@ function renderErrorStep(state: BridgeState): HTMLElement {
     <p class="error-label">${escapeHtml(errorLabel)}</p>
     ${failedStepHtml}
     <p class="error-message">${escapeHtml(errorMessage)}</p>
+    ${techDetailsHtml}
     <div class="error-actions">
       <button id="retry-btn" class="secondary-btn">Try Again</button>
       <button id="copy-error-btn" class="secondary-btn">Copy Error Details</button>
@@ -839,16 +914,8 @@ function renderErrorStep(state: BridgeState): HTMLElement {
   const copyBtn = div.querySelector('#copy-error-btn');
   if (copyBtn) {
     copyBtn.addEventListener('click', () => {
-      const details = [
-        `Error Code: ${errorCode}`,
-        `Error: ${errorLabel}`,
-        failedStep ? `Failed Step: ${failedStep}` : '',
-        `Message: ${errorMessage}`,
-        `Network: ${state.network}`,
-        `Mode: ${state.mode}`,
-        `Time: ${new Date().toISOString()}`,
-      ].filter(Boolean).join('\n');
-      navigator.clipboard.writeText(details).then(() => {
+      const copyText = JSON.stringify(diag, null, 2);
+      navigator.clipboard.writeText(copyText).then(() => {
         copyBtn.textContent = 'Copied!';
         setTimeout(() => { copyBtn.textContent = 'Copy Error Details'; }, 2000);
       }).catch(() => {
