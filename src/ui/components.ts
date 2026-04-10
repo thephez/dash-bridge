@@ -1,5 +1,5 @@
 import type { BridgeState, KeyType, KeyPurpose, SecurityLevel } from '../types.js';
-import { getStepProgress, getStepDescription, ErrorCodeLabels } from './state.js';
+import { getStepProgress, getStepDescription, ErrorCodes, ErrorCodeLabels } from './state.js';
 import { shouldShowContestedWarning, countUsernameStatuses } from '../platform/dpns.js';
 import { generateQRCodeDataUrl } from './qrcode.js';
 import { privateKeyToWif } from '../utils/wif.js';
@@ -814,7 +814,7 @@ function renderErrorStep(state: BridgeState): HTMLElement {
   const div = document.createElement('div');
   div.className = 'error-step';
 
-  const errorCode = state.errorCode ?? 'ERR-1000';
+  const errorCode = state.errorCode ?? ErrorCodes.UNKNOWN;
   const errorLabel = ErrorCodeLabels[errorCode] ?? 'Unknown error';
   const failedStep = state.errorStep ? getStepDescription(state.errorStep) : undefined;
   const errorMessage = state.error?.message || 'An unknown error occurred';

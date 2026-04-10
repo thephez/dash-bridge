@@ -24,6 +24,7 @@ import {
   setInstantLockReceived,
   setIdentityRegistered,
   setError,
+  toError,
   ErrorCodes,
   setDepositTimedOut,
   setNetwork,
@@ -94,26 +95,8 @@ import {
   getPurposeName,
   generateIdentityKey,
 } from './crypto/keys.js';
-import type { KeyType, KeyPurpose, SecurityLevel, ManageNewKeyConfig, BridgeStep } from './types.js';
+import type { KeyType, KeyPurpose, SecurityLevel, ManageNewKeyConfig } from './types.js';
 import type { BridgeState } from './types.js';
-
-/** Map the current processing step to the appropriate error code */
-function errorCodeForStep(step: BridgeStep): string {
-  switch (step) {
-    case 'generating_keys': return ErrorCodes.KEY_GEN;
-    case 'building_transaction': return ErrorCodes.TX_BUILD;
-    case 'signing_transaction': return ErrorCodes.TX_SIGN;
-    case 'broadcasting': return ErrorCodes.BROADCAST;
-    case 'waiting_islock': return ErrorCodes.ISLOCK;
-    case 'registering_identity': return ErrorCodes.REGISTER;
-    case 'topping_up': return ErrorCodes.TOPUP;
-    case 'sending_to_address': return ErrorCodes.SEND_ADDRESS;
-    case 'dpns_checking': return ErrorCodes.DPNS_CHECK;
-    case 'dpns_registering': return ErrorCodes.DPNS_REGISTER;
-    case 'manage_updating': return ErrorCodes.IDENTITY_UPDATE;
-    default: return ErrorCodes.UNKNOWN;
-  }
-}
 
 // Global state
 let state: BridgeState;
@@ -1124,7 +1107,7 @@ async function startTopUp() {
 
   } catch (error) {
     console.error('Top-up error:', error);
-    updateState(setError(state, error instanceof Error ? error : new Error(String(error)), ErrorCodes.TOPUP));
+    updateState(setError(state, toError(error)));
   }
 }
 
@@ -1226,7 +1209,7 @@ async function startSendToAddress() {
 
   } catch (error) {
     console.error('Send to platform address error:', error);
-    updateState(setError(state, error instanceof Error ? error : new Error(String(error)), ErrorCodes.SEND_ADDRESS));
+    updateState(setError(state, toError(error)));
   }
 }
 
@@ -1346,7 +1329,7 @@ async function startBridge() {
 
   } catch (error) {
     console.error('Bridge error:', error);
-    updateState(setError(state, error instanceof Error ? error : new Error(String(error)), errorCodeForStep(state.step)));
+    updateState(setError(state, toError(error)));
   }
 }
 
@@ -1471,7 +1454,7 @@ async function recheckDeposit() {
 
   } catch (error) {
     console.error('Bridge error:', error);
-    updateState(setError(state, error instanceof Error ? error : new Error(String(error)), errorCodeForStep(state.step)));
+    updateState(setError(state, toError(error)));
   }
 }
 
@@ -1502,7 +1485,7 @@ async function startDpnsCheck() {
 
   } catch (error) {
     console.error('DPNS check error:', error);
-    updateState(setError(state, error instanceof Error ? error : new Error(String(error)), ErrorCodes.DPNS_CHECK));
+    updateState(setError(state, toError(error)));
   }
 }
 
@@ -1552,7 +1535,7 @@ async function startDpnsRegistration() {
 
   } catch (error) {
     console.error('DPNS registration error:', error);
-    updateState(setError(state, error instanceof Error ? error : new Error(String(error)), ErrorCodes.DPNS_REGISTER));
+    updateState(setError(state, toError(error)));
   }
 }
 

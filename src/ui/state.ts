@@ -57,6 +57,26 @@ export const ErrorCodeLabels: Record<string, string> = {
   [ErrorCodes.CONFIG]:          'Configuration error',
 };
 
+/** Map a processing step to its error code */
+const StepErrorCodes: Partial<Record<BridgeStep, string>> = {
+  generating_keys:      ErrorCodes.KEY_GEN,
+  building_transaction: ErrorCodes.TX_BUILD,
+  signing_transaction:  ErrorCodes.TX_SIGN,
+  broadcasting:         ErrorCodes.BROADCAST,
+  waiting_islock:       ErrorCodes.ISLOCK,
+  registering_identity: ErrorCodes.REGISTER,
+  topping_up:           ErrorCodes.TOPUP,
+  sending_to_address:   ErrorCodes.SEND_ADDRESS,
+  dpns_checking:        ErrorCodes.DPNS_CHECK,
+  dpns_registering:     ErrorCodes.DPNS_REGISTER,
+  manage_updating:      ErrorCodes.IDENTITY_UPDATE,
+};
+
+/** Coerce an unknown caught value into an Error */
+export function toError(value: unknown): Error {
+  return value instanceof Error ? value : new Error(String(value));
+}
+
 /**
  * Create initial bridge state (mode selection)
  * Keys are generated when mode is selected, not at init
@@ -403,7 +423,7 @@ export function setError(state: BridgeState, error: Error, errorCode?: string): 
     ...state,
     step: 'error',
     error,
-    errorCode: errorCode ?? 'ERR-1000',
+    errorCode: errorCode ?? StepErrorCodes[state.step] ?? ErrorCodes.UNKNOWN,
     errorStep: state.step,
   };
 }
