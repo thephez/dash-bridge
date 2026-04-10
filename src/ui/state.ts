@@ -20,6 +20,44 @@ import { generateNewMnemonic } from '../crypto/hd.js';
 import { createEmptyUsernameEntry, createUsernameEntry } from '../platform/dpns.js';
 
 /**
+ * Error codes for user-facing display.
+ * Each code maps to a specific failure category so users can report issues
+ * with a reference that helps identify what went wrong.
+ */
+export const ErrorCodes = {
+  UNKNOWN:          'ERR-1000',
+  KEY_GEN:          'ERR-1001',
+  TX_BUILD:         'ERR-1002',
+  TX_SIGN:          'ERR-1003',
+  BROADCAST:        'ERR-1004',
+  ISLOCK:           'ERR-1005',
+  REGISTER:         'ERR-1006',
+  TOPUP:            'ERR-1007',
+  SEND_ADDRESS:     'ERR-1008',
+  DPNS_CHECK:       'ERR-1009',
+  DPNS_REGISTER:    'ERR-1010',
+  IDENTITY_UPDATE:  'ERR-1011',
+  CONFIG:           'ERR-1012',
+} as const;
+
+/** Human-readable labels for error codes */
+export const ErrorCodeLabels: Record<string, string> = {
+  [ErrorCodes.UNKNOWN]:         'Unknown error',
+  [ErrorCodes.KEY_GEN]:         'Key generation failed',
+  [ErrorCodes.TX_BUILD]:        'Transaction build failed',
+  [ErrorCodes.TX_SIGN]:         'Transaction signing failed',
+  [ErrorCodes.BROADCAST]:       'Transaction broadcast failed',
+  [ErrorCodes.ISLOCK]:          'InstantSend lock failed',
+  [ErrorCodes.REGISTER]:        'Identity registration failed',
+  [ErrorCodes.TOPUP]:           'Identity top-up failed',
+  [ErrorCodes.SEND_ADDRESS]:    'Send to address failed',
+  [ErrorCodes.DPNS_CHECK]:      'Username availability check failed',
+  [ErrorCodes.DPNS_REGISTER]:   'Username registration failed',
+  [ErrorCodes.IDENTITY_UPDATE]: 'Identity update failed',
+  [ErrorCodes.CONFIG]:          'Configuration error',
+};
+
+/**
  * Create initial bridge state (mode selection)
  * Keys are generated when mode is selected, not at init
  */
@@ -360,11 +398,13 @@ export function setIdentityRegistered(
   };
 }
 
-export function setError(state: BridgeState, error: Error): BridgeState {
+export function setError(state: BridgeState, error: Error, errorCode?: string): BridgeState {
   return {
     ...state,
     step: 'error',
     error,
+    errorCode: errorCode ?? 'ERR-1000',
+    errorStep: state.step,
   };
 }
 

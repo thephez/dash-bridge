@@ -1,5 +1,5 @@
 import type { BridgeState, KeyType, KeyPurpose, SecurityLevel } from '../types.js';
-import { getStepProgress } from './state.js';
+import { getStepProgress, getStepDescription, ErrorCodeLabels } from './state.js';
 import { shouldShowContestedWarning, countUsernameStatuses } from '../platform/dpns.js';
 import { generateQRCodeDataUrl } from './qrcode.js';
 import { privateKeyToWif } from '../utils/wif.js';
@@ -814,12 +814,46 @@ function renderErrorStep(state: BridgeState): HTMLElement {
   const div = document.createElement('div');
   div.className = 'error-step';
 
+  const errorCode = state.errorCode ?? 'ERR-1000';
+  const errorLabel = ErrorCodeLabels[errorCode] ?? 'Unknown error';
+  const failedStep = state.errorStep ? getStepDescription(state.errorStep) : undefined;
+  const errorMessage = state.error?.message || 'An unknown error occurred';
+
+  const failedStepHtml = failedStep
+    ? `<p class="error-failed-step">Failed during: ${escapeHtml(failedStep)}</p>`
+    : '';
+
   div.innerHTML = `
     <div class="error-icon">❌</div>
     <h2>Error</h2>
-    <p class="error-message">${state.error?.message || 'An unknown error occurred'}</p>
-    <button id="retry-btn" class="secondary-btn">Try Again</button>
+    <div class="error-code-badge">${escapeHtml(errorCode)}</div>
+    <p class="error-label">${escapeHtml(errorLabel)}</p>
+    ${failedStepHtml}
+    <p class="error-message">${escapeHtml(errorMessage)}</p>
+    <div class="error-actions">
+      <button id="retry-btn" class="secondary-btn">Try Again</button>
+      <button id="copy-error-btn" class="secondary-btn">Copy Error Details</button>
+    </div>
   `;
+
+  const copyBtn = div.querySelector('#copy-error-btn');
+  if (copyBtn) {
+    copyBtn.addEventListener('click', () => {
+      const details = [
+        `Error Code: ${errorCode}`,
+        `Error: ${errorLabel}`,
+        failedStep ? `Failed Step: ${failedStep}` : '',
+        `Message: ${errorMessage}`,
+        `Network: ${state.network}`,
+        `Mode: ${state.mode}`,
+        `Time: ${new Date().toISOString()}`,
+      ].filter(Boolean).join('\n');
+      navigator.clipboard.writeText(details).then(() => {
+        copyBtn.textContent = 'Copied!';
+        setTimeout(() => { copyBtn.textContent = 'Copy Error Details'; }, 2000);
+      });
+    });
+  }
 
   return div;
 }

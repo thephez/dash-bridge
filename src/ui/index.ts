@@ -14,6 +14,8 @@ export {
   setInstantLockReceived,
   setIdentityRegistered,
   setError,
+  ErrorCodes,
+  ErrorCodeLabels,
   setDepositTimedOut,
   setNetwork,
   getStepDescription,

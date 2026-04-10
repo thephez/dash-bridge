@@ -215,6 +215,10 @@ export interface BridgeState {
   assetLockProof?: AssetLockProofData;
   identityId?: string;
   error?: Error;
+  /** Error code for user-facing display (e.g., "ERR-1006") */
+  errorCode?: string;
+  /** The step that was active when the error occurred */
+  errorStep?: BridgeStep;
   /** True when deposit detection timed out and needs manual recheck */
   depositTimedOut?: boolean;
   /** Current detected deposit amount (may be below minimum) */
