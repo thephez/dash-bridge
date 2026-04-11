@@ -1,5 +1,5 @@
 import type { BridgeState, KeyType, KeyPurpose, SecurityLevel } from '../types.js';
-import { getStepProgress } from './state.js';
+import { getStepProgress, getStepDescription, ErrorCodes, ErrorCodeLabels } from './state.js';
 import { shouldShowContestedWarning, countUsernameStatuses } from '../platform/dpns.js';
 import { generateQRCodeDataUrl } from './qrcode.js';
 import { privateKeyToWif } from '../utils/wif.js';
@@ -810,16 +810,133 @@ function renderCompleteStep(state: BridgeState): HTMLElement {
   return div;
 }
 
+/** Build a full diagnostic object from the error state for dev troubleshooting */
+function buildErrorDiagnostics(state: BridgeState): Record<string, unknown> {
+  const errorCode = state.errorCode ?? ErrorCodes.UNKNOWN;
+  const diag: Record<string, unknown> = {
+    errorCode,
+    errorLabel: ErrorCodeLabels[errorCode] ?? 'Unknown error',
+    errorStep: state.errorStep ?? null,
+    message: state.error?.message ?? 'An unknown error occurred',
+    stack: state.error?.stack ?? null,
+    network: state.network,
+    mode: state.mode,
+    timestamp: new Date().toISOString(),
+  };
+
+  // Transaction context — critical for tracking on-chain state
+  // NOTE: signedTxHex is intentionally excluded — if the error occurred before
+  // broadcast, a signed tx in a bug report lets anyone steal the user's funds.
+  // txid + UTXO data is sufficient for on-chain lookup.
+  if (state.depositAddress) diag.depositAddress = state.depositAddress;
+  if (state.txid) diag.txid = state.txid;
+  if (state.depositAmount !== undefined) diag.depositAmount = String(state.depositAmount);
+  if (state.detectedUtxo) {
+    diag.utxo = {
+      txid: state.detectedUtxo.txid,
+      vout: state.detectedUtxo.vout,
+      satoshis: state.detectedUtxo.satoshis,
+    };
+  }
+
+  // Identity context
+  if (state.identityId) diag.identityId = state.identityId;
+  if (state.targetIdentityId) diag.targetIdentityId = state.targetIdentityId;
+  if (state.recipientPlatformAddress) diag.recipientPlatformAddress = state.recipientPlatformAddress;
+
+  // DPNS context
+  if (state.dpnsUsernames?.length) {
+    diag.dpnsUsernames = state.dpnsUsernames.map(u => ({
+      label: u.label,
+      status: u.status,
+      isAvailable: u.isAvailable ?? null,
+      isContested: u.isContested ?? null,
+    }));
+  }
+  if (state.dpnsPublicKeyId !== undefined) diag.dpnsPublicKeyId = state.dpnsPublicKeyId;
+  if (state.dpnsRegistrationProgress !== undefined) diag.dpnsRegistrationProgress = state.dpnsRegistrationProgress;
+  if (state.dpnsResults?.length) {
+    diag.dpnsResults = state.dpnsResults.map(r => ({
+      label: r.label,
+      success: r.success,
+      error: r.error ?? null,
+      isContested: r.isContested,
+    }));
+  }
+
+  // Identity management context
+  if (state.manageSigningKeyInfo) diag.manageSigningKeyInfo = state.manageSigningKeyInfo;
+  // Count only — ManageNewKeyConfig objects contain private key material
+  if (state.manageKeysToAdd?.length) diag.manageKeysToAddCount = state.manageKeysToAdd.length;
+  if (state.manageKeyIdsToDisable?.length) diag.manageKeyIdsToDisable = state.manageKeyIdsToDisable;
+
+  // Retry state
+  if (state.retryStatus) diag.retryStatus = state.retryStatus;
+
+  // Identity keys count (not the keys themselves)
+  if (state.identityKeys.length) diag.identityKeysCount = state.identityKeys.length;
+
+  return diag;
+}
+
 function renderErrorStep(state: BridgeState): HTMLElement {
   const div = document.createElement('div');
   div.className = 'error-step';
 
+  const diag = buildErrorDiagnostics(state);
+  const errorCode = String(diag.errorCode);
+  const errorLabel = String(diag.errorLabel);
+  const errorMessage = String(diag.message);
+  const failedStep = state.errorStep ? getStepDescription(state.errorStep) : undefined;
+
+  const failedStepHtml = failedStep
+    ? `<p class="error-failed-step">Failed during: ${escapeHtml(failedStep)}</p>`
+    : '';
+
+  // Build a concise technical summary from the diagnostic object
+  const techLines: string[] = [];
+  if (diag.errorStep) techLines.push(`Step: ${diag.errorStep}`);
+  if (diag.depositAddress) techLines.push(`Deposit: ${diag.depositAddress}`);
+  if (diag.txid) techLines.push(`TxID: ${diag.txid}`);
+  if (diag.identityId) techLines.push(`Identity: ${diag.identityId}`);
+  if (diag.targetIdentityId) techLines.push(`Target Identity: ${diag.targetIdentityId}`);
+  if (diag.recipientPlatformAddress) techLines.push(`Recipient: ${diag.recipientPlatformAddress}`);
+  if (diag.stack) techLines.push(`\nStack Trace:\n${diag.stack}`);
+
+  const techDetailsHtml = techLines.length > 0 ? `
+    <details class="error-technical">
+      <summary>Technical Details</summary>
+      <pre class="error-technical-content">${escapeHtml(techLines.join('\n'))}</pre>
+    </details>
+  ` : '';
+
   div.innerHTML = `
     <div class="error-icon">❌</div>
     <h2>Error</h2>
-    <p class="error-message">${state.error?.message || 'An unknown error occurred'}</p>
-    <button id="retry-btn" class="secondary-btn">Try Again</button>
+    <div class="error-code-badge">${escapeHtml(errorCode)}</div>
+    <p class="error-label">${escapeHtml(errorLabel)}</p>
+    ${failedStepHtml}
+    <p class="error-message">${escapeHtml(errorMessage)}</p>
+    ${techDetailsHtml}
+    <div class="error-actions">
+      <button id="retry-btn" class="secondary-btn">Try Again</button>
+      <button id="copy-error-btn" class="secondary-btn">Copy Error Details</button>
+    </div>
   `;
+
+  const copyBtn = div.querySelector('#copy-error-btn');
+  if (copyBtn) {
+    copyBtn.addEventListener('click', () => {
+      const copyText = JSON.stringify(diag, null, 2);
+      navigator.clipboard.writeText(copyText).then(() => {
+        copyBtn.textContent = 'Copied!';
+        setTimeout(() => { copyBtn.textContent = 'Copy Error Details'; }, 2000);
+      }).catch(() => {
+        copyBtn.textContent = 'Copy failed';
+        setTimeout(() => { copyBtn.textContent = 'Copy Error Details'; }, 2000);
+      });
+    });
+  }
 
   return div;
 }

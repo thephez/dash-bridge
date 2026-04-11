@@ -24,6 +24,8 @@ import {
   setInstantLockReceived,
   setIdentityRegistered,
   setError,
+  toError,
+  ErrorCodes,
   setDepositTimedOut,
   setNetwork,
   updateIdentityKey,
@@ -420,7 +422,8 @@ function setupEventListeners(container: HTMLElement) {
       } else {
         updateState(setError(
           state,
-          new Error('No valid key for DPNS registration. You need an AUTHENTICATION key with CRITICAL or HIGH security level.')
+          new Error('No valid key for DPNS registration. You need an AUTHENTICATION key with CRITICAL or HIGH security level.'),
+          ErrorCodes.CONFIG
         ));
       }
     });
@@ -1104,7 +1107,7 @@ async function startTopUp() {
 
   } catch (error) {
     console.error('Top-up error:', error);
-    updateState(setError(state, error instanceof Error ? error : new Error(String(error))));
+    updateState(setError(state, toError(error)));
   }
 }
 
@@ -1206,7 +1209,7 @@ async function startSendToAddress() {
 
   } catch (error) {
     console.error('Send to platform address error:', error);
-    updateState(setError(state, error instanceof Error ? error : new Error(String(error))));
+    updateState(setError(state, toError(error)));
   }
 }
 
@@ -1326,7 +1329,7 @@ async function startBridge() {
 
   } catch (error) {
     console.error('Bridge error:', error);
-    updateState(setError(state, error instanceof Error ? error : new Error(String(error))));
+    updateState(setError(state, toError(error)));
   }
 }
 
@@ -1451,7 +1454,7 @@ async function recheckDeposit() {
 
   } catch (error) {
     console.error('Bridge error:', error);
-    updateState(setError(state, error instanceof Error ? error : new Error(String(error))));
+    updateState(setError(state, toError(error)));
   }
 }
 
@@ -1482,7 +1485,7 @@ async function startDpnsCheck() {
 
   } catch (error) {
     console.error('DPNS check error:', error);
-    updateState(setError(state, error instanceof Error ? error : new Error(String(error))));
+    updateState(setError(state, toError(error)));
   }
 }
 
@@ -1532,7 +1535,7 @@ async function startDpnsRegistration() {
 
   } catch (error) {
     console.error('DPNS registration error:', error);
-    updateState(setError(state, error instanceof Error ? error : new Error(String(error))));
+    updateState(setError(state, toError(error)));
   }
 }
 
