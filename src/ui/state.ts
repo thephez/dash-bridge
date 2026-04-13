@@ -74,7 +74,11 @@ const StepErrorCodes: Partial<Record<BridgeStep, string>> = {
 
 /** Coerce an unknown caught value into an Error */
 export function toError(value: unknown): Error {
-  return value instanceof Error ? value : new Error(String(value));
+  if (value instanceof Error) return value;
+  if (value && typeof value === 'object' && 'message' in value) {
+    return new Error(String((value as { message: unknown }).message));
+  }
+  return new Error(String(value));
 }
 
 /**
