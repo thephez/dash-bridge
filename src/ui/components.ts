@@ -7,6 +7,49 @@ import { bytesToHex } from '../utils/hex.js';
 import { getNetwork } from '../config.js';
 import { getAssetLockDerivationPath } from '../crypto/hd.js';
 
+/**
+ * Build a Platform Explorer URL for a given entity.
+ */
+function explorerUrl(network: 'testnet' | 'mainnet', type: 'identity' | 'dataContract', id: string): string {
+  const base = network === 'testnet' ? 'https://testnet.platform-explorer.com' : 'https://platform-explorer.com';
+  return `${base}/${type}/${id}`;
+}
+
+/**
+ * Render an ID section with copy button and optional explorer link.
+ * Returns an HTMLElement ready to append.
+ */
+function renderIdSection(
+  label: string,
+  id: string,
+  options?: { explorerHref?: string; copyBtnId?: string },
+): HTMLElement {
+  const section = document.createElement('div');
+  section.className = 'contract-id-section';
+  const copyId = options?.copyBtnId || `copy-${label.toLowerCase().replace(/\s+/g, '-')}-btn`;
+  section.innerHTML = `
+    <label>${escapeHtml(label)}</label>
+    <div class="id-row">
+      <code class="identity-id">${escapeHtml(id)}</code>
+      <button id="${copyId}" class="tertiary-btn copy-btn" title="Copy">Copy</button>
+    </div>
+    ${options?.explorerHref ? `<a href="${options.explorerHref}" target="_blank" rel="noopener" class="explorer-link">View on Platform Explorer &rarr;</a>` : ''}
+  `;
+  // Wire copy on next tick (after DOM attach)
+  setTimeout(() => {
+    const btn = section.querySelector(`#${copyId}`);
+    if (btn) {
+      btn.addEventListener('click', () => {
+        navigator.clipboard.writeText(id).then(() => {
+          btn.textContent = 'Copied!';
+          setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
+        });
+      });
+    }
+  }, 0);
+  return section;
+}
+
 // Available options for key configuration
 const KEY_TYPES: KeyType[] = ['ECDSA_SECP256K1', 'ECDSA_HASH160'];
 const KEY_PURPOSES: KeyPurpose[] = ['AUTHENTICATION', 'ENCRYPTION', 'TRANSFER', 'VOTING', 'OWNER'];
@@ -790,34 +833,26 @@ function renderCompleteStep(state: BridgeState): HTMLElement {
     div.appendChild(backupSection);
   }
 
-  // Identity/address info
+  // Identity/address info with copy + explorer link
   if (isSendToAddress && state.recipientPlatformAddress) {
-    const addressInfo = document.createElement('div');
-    addressInfo.className = 'identity-info';
-    addressInfo.innerHTML = `
-      <label>Recipient Address</label>
-      <code class="identity-id">${escapeHtml(state.recipientPlatformAddress)}</code>
-    `;
-    div.appendChild(addressInfo);
+    div.appendChild(renderIdSection('Recipient Address', state.recipientPlatformAddress, {
+      copyBtnId: 'copy-address-btn',
+    }));
   } else {
-    const identityInfo = document.createElement('div');
-    identityInfo.className = 'identity-info';
-    identityInfo.innerHTML = `
-      <label>${isTopUp ? 'Identity ID' : 'Your Identity ID'}</label>
-      <code class="identity-id">${state.identityId || state.targetIdentityId || 'Unknown'}</code>
-    `;
-    div.appendChild(identityInfo);
+    const idValue = state.identityId || state.targetIdentityId || 'Unknown';
+    div.appendChild(renderIdSection(
+      isTopUp ? 'Identity ID' : 'Your Identity ID',
+      idValue,
+      {
+        explorerHref: idValue !== 'Unknown' ? explorerUrl(state.network, 'identity', idValue) : undefined,
+        copyBtnId: 'copy-identity-btn',
+      },
+    ));
   }
 
   // Transaction ID (for top-up/send_to_address mode)
   if ((isTopUp || isSendToAddress) && state.txid) {
-    const txInfo = document.createElement('div');
-    txInfo.className = 'tx-info';
-    txInfo.innerHTML = `
-      <label>Transaction ID</label>
-      <code class="txid">${state.txid}</code>
-    `;
-    div.appendChild(txInfo);
+    div.appendChild(renderIdSection('Transaction ID', state.txid, { copyBtnId: 'copy-txid-btn' }));
   }
 
   // Contract prompt (when user came from contract flow)
@@ -1579,14 +1614,12 @@ function renderDpnsCompleteStep(state: BridgeState): HTMLElement {
 
   div.appendChild(resultsSection);
 
-  // Identity info
-  const identityInfo = document.createElement('div');
-  identityInfo.className = 'identity-info';
-  identityInfo.innerHTML = `
-    <label>Identity ID</label>
-    <code class="identity-id">${state.identityId || state.targetIdentityId || 'Unknown'}</code>
-  `;
-  div.appendChild(identityInfo);
+  // Identity info with copy + explorer link
+  const dpnsIdentityId = state.identityId || state.targetIdentityId || 'Unknown';
+  div.appendChild(renderIdSection('Identity ID', dpnsIdentityId, {
+    explorerHref: dpnsIdentityId !== 'Unknown' ? explorerUrl(state.network, 'identity', dpnsIdentityId) : undefined,
+    copyBtnId: 'copy-dpns-identity-btn',
+  }));
 
   // Action buttons
   const actionButtons = document.createElement('div');
@@ -2000,14 +2033,12 @@ function renderManageCompleteStep(state: BridgeState): HTMLElement {
     div.appendChild(errorMsg);
   }
 
-  // Identity info
-  const identityInfo = document.createElement('div');
-  identityInfo.className = 'identity-info';
-  identityInfo.innerHTML = `
-    <label>Identity ID</label>
-    <code class="identity-id">${state.targetIdentityId || 'Unknown'}</code>
-  `;
-  div.appendChild(identityInfo);
+  // Identity info with copy + explorer link
+  const manageIdentityId = state.targetIdentityId || 'Unknown';
+  div.appendChild(renderIdSection('Identity ID', manageIdentityId, {
+    explorerHref: manageIdentityId !== 'Unknown' ? explorerUrl(state.network, 'identity', manageIdentityId) : undefined,
+    copyBtnId: 'copy-manage-identity-btn',
+  }));
 
   // Action buttons
   const actionButtons = document.createElement('div');
@@ -2406,11 +2437,6 @@ function renderContractCompleteStep(state: BridgeState): HTMLElement {
   const identityId = state.identityId || state.targetIdentityId || '';
   const estimate = state.contractEstimate;
   const parsed = state.contractParsed;
-  const isTestnet = state.network === 'testnet';
-  const explorerBase = isTestnet
-    ? 'https://testnet.platform-explorer.com/dataContract'
-    : 'https://platform-explorer.com/dataContract';
-
   // Success header
   const header = document.createElement('div');
   header.className = 'contract-complete-header';
@@ -2421,31 +2447,18 @@ function renderContractCompleteStep(state: BridgeState): HTMLElement {
   `;
   div.appendChild(header);
 
-  // Contract ID with copy
-  const contractInfo = document.createElement('div');
-  contractInfo.className = 'contract-id-section';
-  contractInfo.innerHTML = `
-    <label>Contract ID</label>
-    <div class="id-row">
-      <code class="identity-id">${escapeHtml(contractId)}</code>
-      <button id="copy-contract-id-btn" class="tertiary-btn copy-btn" title="Copy Contract ID">Copy</button>
-    </div>
-    <a href="${explorerBase}/${escapeHtml(contractId)}" target="_blank" rel="noopener" class="explorer-link">View on Platform Explorer &rarr;</a>
-  `;
-  div.appendChild(contractInfo);
+  // Contract ID with copy + explorer
+  div.appendChild(renderIdSection('Contract ID', contractId, {
+    explorerHref: explorerUrl(state.network, 'dataContract', contractId),
+    copyBtnId: 'copy-contract-id-btn',
+  }));
 
-  // Owner identity with copy
+  // Owner identity with copy + explorer
   if (identityId) {
-    const ownerInfo = document.createElement('div');
-    ownerInfo.className = 'contract-id-section';
-    ownerInfo.innerHTML = `
-      <label>Owner Identity</label>
-      <div class="id-row">
-        <code class="identity-id">${escapeHtml(identityId)}</code>
-        <button id="copy-identity-id-btn" class="tertiary-btn copy-btn" title="Copy Identity ID">Copy</button>
-      </div>
-    `;
-    div.appendChild(ownerInfo);
+    div.appendChild(renderIdSection('Owner Identity', identityId, {
+      explorerHref: explorerUrl(state.network, 'identity', identityId),
+      copyBtnId: 'copy-identity-id-btn',
+    }));
   }
 
   // Fee summary (what was paid)
@@ -2480,28 +2493,6 @@ function renderContractCompleteStep(state: BridgeState): HTMLElement {
   startOverBtn.className = 'secondary-btn';
   startOverBtn.textContent = 'Start Over';
   div.appendChild(startOverBtn);
-
-  // Wire up copy buttons
-  setTimeout(() => {
-    const copyContractBtn = div.querySelector('#copy-contract-id-btn');
-    if (copyContractBtn) {
-      copyContractBtn.addEventListener('click', () => {
-        navigator.clipboard.writeText(contractId).then(() => {
-          copyContractBtn.textContent = 'Copied!';
-          setTimeout(() => { copyContractBtn.textContent = 'Copy'; }, 2000);
-        });
-      });
-    }
-    const copyIdentityBtn = div.querySelector('#copy-identity-id-btn');
-    if (copyIdentityBtn) {
-      copyIdentityBtn.addEventListener('click', () => {
-        navigator.clipboard.writeText(identityId).then(() => {
-          copyIdentityBtn.textContent = 'Copied!';
-          setTimeout(() => { copyIdentityBtn.textContent = 'Copy'; }, 2000);
-        });
-      });
-    }
-  }, 0);
 
   return div;
 }
