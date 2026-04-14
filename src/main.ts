@@ -1345,7 +1345,9 @@ function validateIdentityId(id?: string): boolean {
 
 /**
  * Parse a key backup JSON file and extract identityId + best private key WIF.
- * Returns null if the file doesn't contain the needed data.
+ * Prefers AUTHENTICATION keys with HIGH or CRITICAL security level, since those
+ * are required for DPNS and contract operations. MASTER keys are ranked lower
+ * because they are rejected by isPurposeAllowedForDpns/isSecurityLevelAllowedForDpns.
  */
 function parseKeyBackup(json: unknown): { identityId: string; privateKeyWif: string; purpose: string; securityLevel: string } | null {
   if (!json || typeof json !== 'object') return null;
@@ -1356,14 +1358,15 @@ function parseKeyBackup(json: unknown): { identityId: string; privateKeyWif: str
   const keys = obj.identityKeys as Array<Record<string, unknown>> | undefined;
   if (!Array.isArray(keys) || keys.length === 0) return null;
 
-  // Pick the best key: prefer AUTHENTICATION + HIGH/CRITICAL, fall back to first with a WIF
   const ranked = keys
     .filter((k) => typeof k.privateKeyWif === 'string')
     .sort((a, b) => {
+      // Prefer AUTHENTICATION purpose
       const aAuth = a.purpose === 'AUTHENTICATION' ? 1 : 0;
       const bAuth = b.purpose === 'AUTHENTICATION' ? 1 : 0;
       if (aAuth !== bAuth) return bAuth - aAuth;
-      const levelOrder: Record<string, number> = { MASTER: 4, CRITICAL: 3, HIGH: 2, MEDIUM: 1 };
+      // Prefer HIGH/CRITICAL over MASTER (MASTER is not accepted for DPNS/contracts)
+      const levelOrder: Record<string, number> = { HIGH: 4, CRITICAL: 3, MEDIUM: 2, MASTER: 1 };
       return (levelOrder[b.securityLevel as string] || 0) - (levelOrder[a.securityLevel as string] || 0);
     });
 
