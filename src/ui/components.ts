@@ -50,6 +50,22 @@ function renderIdSection(
   return section;
 }
 
+/**
+ * Render a key backup file upload section for identity entry forms.
+ */
+function renderKeyUploadSection(inputId: string): string {
+  return `
+    <div class="key-upload-section">
+      <label class="key-upload-label">
+        <input type="file" id="${inputId}" accept=".json,application/json" class="key-upload-input" />
+        <span class="key-upload-btn">Upload Key Backup</span>
+        <span class="key-upload-hint">or enter manually below</span>
+      </label>
+      <p id="${inputId}-status" class="key-upload-status"></p>
+    </div>
+  `;
+}
+
 // Available options for key configuration
 const KEY_TYPES: KeyType[] = ['ECDSA_SECP256K1', 'ECDSA_HASH160'];
 const KEY_PURPOSES: KeyPurpose[] = ['AUTHENTICATION', 'ENCRYPTION', 'TRANSFER', 'VOTING', 'OWNER'];
@@ -1220,8 +1236,9 @@ function renderDpnsEnterIdentityStep(state: BridgeState): HTMLElement {
     keyValidationHtml = `<p class="key-status error">${escapeHtml(state.dpnsKeyValidationError!)}</p>`;
   }
 
-  // Always show both input fields
   form.innerHTML = `
+    ${renderKeyUploadSection('dpns-key-upload')}
+
     <div class="input-group">
       <label class="input-label">Identity ID</label>
       <input
@@ -1717,6 +1734,8 @@ function renderManageEnterIdentityStep(state: BridgeState): HTMLElement {
   }
 
   form.innerHTML = `
+    ${renderKeyUploadSection('manage-key-upload')}
+
     <div class="input-group">
       <label class="input-label">Identity ID</label>
       <input
@@ -2170,6 +2189,8 @@ function renderContractEnterIdentityStep(state: BridgeState): HTMLElement {
   const form = document.createElement('div');
   form.className = 'dpns-identity-form';
   form.innerHTML = `
+    ${renderKeyUploadSection('contract-key-upload')}
+
     <div class="input-group">
       <label class="input-label">Identity ID</label>
       <input

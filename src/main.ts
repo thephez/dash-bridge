@@ -1006,6 +1006,80 @@ function setupEventListeners(container: HTMLElement) {
   }
 
   // ============================================================================
+  // ============================================================================
+  // Key Backup Upload Handlers (shared across DPNS, manage, contract)
+  // ============================================================================
+
+  function wireKeyUpload(
+    inputId: string,
+    onParsed: (result: { identityId: string; privateKeyWif: string }) => void,
+  ) {
+    const fileInput = container.querySelector<HTMLInputElement>(`#${inputId}`);
+    if (!fileInput) return;
+    fileInput.addEventListener('change', () => {
+      const file = fileInput.files?.[0];
+      if (!file) return;
+      const statusEl = container.querySelector(`#${inputId}-status`);
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const json = JSON.parse(reader.result as string);
+          const parsed = parseKeyBackup(json);
+          if (!parsed) {
+            if (statusEl) { statusEl.textContent = 'No identity or keys found in file'; statusEl.className = 'key-upload-status error'; }
+            return;
+          }
+          if (statusEl) { statusEl.textContent = `Loaded: ${parsed.identityId.slice(0, 8)}... (${parsed.purpose} / ${parsed.securityLevel})`; statusEl.className = 'key-upload-status success'; }
+          onParsed(parsed);
+        } catch {
+          if (statusEl) { statusEl.textContent = 'Invalid JSON file'; statusEl.className = 'key-upload-status error'; }
+        }
+      };
+      reader.readAsText(file);
+    });
+  }
+
+  // DPNS key upload
+  wireKeyUpload('dpns-key-upload', (result) => {
+    let s = setTargetIdentityId(state, result.identityId);
+    s = { ...s, dpnsPrivateKeyWif: result.privateKeyWif };
+    updateState(s);
+    // Trigger identity fetch + key validation by simulating the blur handlers
+    const idInput = document.querySelector<HTMLInputElement>('#dpns-identity-id-input');
+    if (idInput) { idInput.value = result.identityId; idInput.dispatchEvent(new Event('blur')); }
+    setTimeout(() => {
+      const keyInput = document.querySelector<HTMLInputElement>('#dpns-private-key-input');
+      if (keyInput) { keyInput.value = result.privateKeyWif; keyInput.dispatchEvent(new Event('blur')); }
+    }, 100);
+  });
+
+  // Manage key upload
+  wireKeyUpload('manage-key-upload', (result) => {
+    let s = setTargetIdentityId(state, result.identityId);
+    s = { ...s, managePrivateKeyWif: result.privateKeyWif };
+    updateState(s);
+    const idInput = document.querySelector<HTMLInputElement>('#manage-identity-id-input');
+    if (idInput) { idInput.value = result.identityId; idInput.dispatchEvent(new Event('blur')); }
+    setTimeout(() => {
+      const keyInput = document.querySelector<HTMLInputElement>('#manage-private-key-input');
+      if (keyInput) { keyInput.value = result.privateKeyWif; keyInput.dispatchEvent(new Event('blur')); }
+    }, 100);
+  });
+
+  // Contract key upload
+  wireKeyUpload('contract-key-upload', (result) => {
+    let s = setTargetIdentityId(state, result.identityId);
+    s = { ...s, contractPrivateKeyWif: result.privateKeyWif };
+    updateState(s);
+    const idInput = document.querySelector<HTMLInputElement>('#contract-identity-id-input');
+    if (idInput) { idInput.value = result.identityId; idInput.dispatchEvent(new Event('blur')); }
+    setTimeout(() => {
+      const keyInput = document.querySelector<HTMLInputElement>('#contract-private-key-input');
+      if (keyInput) { keyInput.value = result.privateKeyWif; keyInput.dispatchEvent(new Event('blur')); }
+    }, 100);
+  });
+
+  // ============================================================================
   // Contract Registration Event Listeners
   // ============================================================================
 
@@ -1221,6 +1295,40 @@ function validateIdentityId(id?: string): boolean {
   if (!id) return false;
   // Dash identity IDs are Base58 encoded, typically 43-44 characters
   return /^[1-9A-HJ-NP-Za-km-z]{43,44}$/.test(id);
+}
+
+/**
+ * Parse a key backup JSON file and extract identityId + best private key WIF.
+ * Returns null if the file doesn't contain the needed data.
+ */
+function parseKeyBackup(json: unknown): { identityId: string; privateKeyWif: string; purpose: string; securityLevel: string } | null {
+  if (!json || typeof json !== 'object') return null;
+  const obj = json as Record<string, unknown>;
+  const identityId = (obj.identityId || obj.targetIdentityId) as string | undefined;
+  if (!identityId || typeof identityId !== 'string') return null;
+
+  const keys = obj.identityKeys as Array<Record<string, unknown>> | undefined;
+  if (!Array.isArray(keys) || keys.length === 0) return null;
+
+  // Pick the best key: prefer AUTHENTICATION + HIGH/CRITICAL, fall back to first with a WIF
+  const ranked = keys
+    .filter((k) => typeof k.privateKeyWif === 'string')
+    .sort((a, b) => {
+      const aAuth = a.purpose === 'AUTHENTICATION' ? 1 : 0;
+      const bAuth = b.purpose === 'AUTHENTICATION' ? 1 : 0;
+      if (aAuth !== bAuth) return bAuth - aAuth;
+      const levelOrder: Record<string, number> = { MASTER: 4, CRITICAL: 3, HIGH: 2, MEDIUM: 1 };
+      return (levelOrder[b.securityLevel as string] || 0) - (levelOrder[a.securityLevel as string] || 0);
+    });
+
+  if (ranked.length === 0) return null;
+  const best = ranked[0];
+  return {
+    identityId,
+    privateKeyWif: best.privateKeyWif as string,
+    purpose: (best.purpose as string) || 'UNKNOWN',
+    securityLevel: (best.securityLevel as string) || 'UNKNOWN',
+  };
 }
 
 /**

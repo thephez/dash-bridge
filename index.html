@@ -2163,6 +2163,52 @@
       color: #4CAF50;
       font-size: 0.8rem;
     }
+    .key-upload-section {
+      margin-bottom: 16px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+    .key-upload-label {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      cursor: pointer;
+    }
+    .key-upload-input {
+      display: none;
+    }
+    .key-upload-btn {
+      display: inline-block;
+      background: rgba(0, 141, 228, 0.1);
+      color: #008de4;
+      border: 1px dashed rgba(0, 141, 228, 0.3);
+      border-radius: 6px;
+      padding: 8px 16px;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .key-upload-btn:hover {
+      background: rgba(0, 141, 228, 0.2);
+      border-color: #008de4;
+    }
+    .key-upload-hint {
+      color: #666;
+      font-size: 0.8rem;
+    }
+    .key-upload-status {
+      font-size: 0.8rem;
+      margin-top: 6px;
+    }
+    .key-upload-status:empty {
+      display: none;
+    }
+    .key-upload-status.success {
+      color: #4CAF50;
+    }
+    .key-upload-status.error {
+      color: #f44336;
+    }
     .contract-complete-header {
       text-align: center;
       margin-bottom: 20px;
