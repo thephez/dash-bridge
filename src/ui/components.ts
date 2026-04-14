@@ -2330,29 +2330,14 @@ function renderContractReviewStep(state: BridgeState): HTMLElement {
     return div;
   }
 
-  const uniqueCount = parsed.documentTypes.reduce((s, dt) => s + dt.indexes.filter(i => i.unique && !i.contested).length, 0);
-  const nonUniqueCount = parsed.documentTypes.reduce((s, dt) => s + dt.indexes.filter(i => !i.unique && !i.contested).length, 0);
-  const contestedCount = parsed.documentTypes.reduce((s, dt) => s + dt.indexes.filter(i => i.contested).length, 0);
-
-  let actionHtml = '';
-  if (isNew && !state.contractFromIdentityCreation) {
-    const depositDash = state.minimumDeposit ? (state.minimumDeposit / 100_000_000).toFixed(4) : '?';
-    actionHtml = `
-      <p class="review-note">A new identity will be created with a deposit of <strong>${depositDash} DASH</strong>. After identity creation, the contract will be published automatically.</p>
-      <button id="contract-start-bridge-btn" class="primary-btn">Continue to Deposit</button>
-    `;
-  } else {
-    const idLabel = state.identityId || state.targetIdentityId || '';
-    actionHtml = `
-      <p class="review-note">The contract will be published using identity <code>${escapeHtml(idLabel)}</code>.</p>
-      <button id="contract-publish-btn" class="primary-btn">Publish Contract</button>
-    `;
-  }
-
   const headline = document.createElement('h2');
   headline.className = 'dpns-headline';
   headline.textContent = 'Review Contract';
   div.appendChild(headline);
+
+  const uniqueCount = parsed.documentTypes.reduce((s, dt) => s + dt.indexes.filter(i => i.unique && !i.contested).length, 0);
+  const nonUniqueCount = parsed.documentTypes.reduce((s, dt) => s + dt.indexes.filter(i => !i.unique && !i.contested).length, 0);
+  const contestedCount = parsed.documentTypes.reduce((s, dt) => s + dt.indexes.filter(i => i.contested).length, 0);
 
   const summaryDiv = document.createElement('div');
   summaryDiv.innerHTML = `
@@ -2365,19 +2350,51 @@ function renderContractReviewStep(state: BridgeState): HTMLElement {
       </ul>
     </div>
     ${renderFeeTable(estimate)}
-    ${actionHtml}
   `;
   div.appendChild(summaryDiv);
 
+  // Deposit / identity info callout
+  if (isNew && !state.contractFromIdentityCreation) {
+    const depositDash = state.minimumDeposit ? (state.minimumDeposit / 100_000_000).toFixed(4) : '?';
+    const depositInfo = document.createElement('div');
+    depositInfo.className = 'deposit-estimate';
+    depositInfo.innerHTML = `A new identity will be created with a deposit of <strong>${depositDash} DASH</strong>. After identity creation, the contract will be published automatically.`;
+    div.appendChild(depositInfo);
+  } else {
+    const idLabel = state.identityId || state.targetIdentityId || '';
+    if (idLabel) {
+      const identityInfo = document.createElement('p');
+      identityInfo.className = 'review-note';
+      identityInfo.innerHTML = `Publishing with identity <code>${escapeHtml(idLabel)}</code>`;
+      div.appendChild(identityInfo);
+    }
+  }
+
+  // Action buttons
   const navButtons = document.createElement('div');
   navButtons.className = 'nav-buttons';
+
   const backBtn = document.createElement('button');
   backBtn.id = 'contract-back-btn';
   backBtn.className = 'secondary-btn';
   backBtn.textContent = 'Back';
   navButtons.appendChild(backBtn);
-  div.appendChild(navButtons);
 
+  if (isNew && !state.contractFromIdentityCreation) {
+    const startBridgeBtn = document.createElement('button');
+    startBridgeBtn.id = 'contract-start-bridge-btn';
+    startBridgeBtn.className = 'primary-btn';
+    startBridgeBtn.textContent = 'Continue to Deposit';
+    navButtons.appendChild(startBridgeBtn);
+  } else {
+    const publishBtn = document.createElement('button');
+    publishBtn.id = 'contract-publish-btn';
+    publishBtn.className = 'primary-btn';
+    publishBtn.textContent = 'Publish Contract';
+    navButtons.appendChild(publishBtn);
+  }
+
+  div.appendChild(navButtons);
   return div;
 }
 
