@@ -1055,54 +1055,51 @@ function setupEventListeners(container: HTMLElement) {
     }
   }
 
-  // DPNS key upload — fetch identity then validate key sequentially
+  // DPNS key upload — show loading, fetch identity, validate key, update once
   wireKeyUpload('dpns-key-upload', async (result) => {
     updateState({ ...setDpnsIdentityFetching(state, result.identityId), dpnsPrivateKeyWif: result.privateKeyWif });
     try {
       const keys = await getIdentityPublicKeys(result.identityId, state.network);
-      updateState(setDpnsIdentityFetched(state, keys));
+      // Build final state in one shot: fetched keys + key validation result
+      let finalState = setDpnsIdentityFetched(state, keys);
+      finalState = { ...finalState, dpnsPrivateKeyWif: result.privateKeyWif };
       const match = findMatchingKeyIndex(result.privateKeyWif, keys, state.network);
       if (match && isPurposeAllowedForDpns(match.purpose) && isSecurityLevelAllowedForDpns(match.securityLevel)) {
-        updateState(setDpnsKeyValidated(state, match.keyId, result.privateKeyWif));
-      } else if (match) {
-        updateState(setDpnsKeyValidationError(state, `Key must be AUTHENTICATION with HIGH or CRITICAL level`));
+        finalState = setDpnsKeyValidated(finalState, match.keyId, result.privateKeyWif);
       } else {
-        updateState(setDpnsKeyValidationError(state, 'Key does not match any identity key'));
+        finalState = { ...finalState, dpnsKeyValidationError: match ? 'Key must be AUTHENTICATION with HIGH or CRITICAL level' : 'Key does not match any identity key' };
       }
+      updateState(finalState);
     } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      updateState(setDpnsIdentityFetchError(state, msg));
+      updateState({ ...setDpnsIdentityFetchError(state, error instanceof Error ? error.message : String(error)), dpnsPrivateKeyWif: result.privateKeyWif });
     }
   });
 
-  // Manage key upload — fetch identity then validate key sequentially
+  // Manage key upload — show loading, fetch identity, validate key, update once
   wireKeyUpload('manage-key-upload', async (result) => {
     updateState({ ...setManageIdentityFetching(state, result.identityId), managePrivateKeyWif: result.privateKeyWif });
     try {
       const keys = await getIdentityPublicKeys(result.identityId, state.network);
-      updateState(setManageIdentityFetched(state, keys));
+      let finalState = setManageIdentityFetched(state, keys);
+      finalState = { ...finalState, managePrivateKeyWif: result.privateKeyWif };
       const match = findMatchingKeyIndex(result.privateKeyWif, keys, state.network);
       if (match) {
-        updateState(setManageKeyValidated(state, match.keyId, match.securityLevel, result.privateKeyWif));
+        finalState = setManageKeyValidated(finalState, match.keyId, match.securityLevel, result.privateKeyWif);
       } else {
-        updateState(setManageKeyValidationError(state, 'Key does not match any identity key'));
+        finalState = { ...finalState, manageKeyValidationError: 'Key does not match any identity key' };
       }
+      updateState(finalState);
     } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      updateState(setManageIdentityFetchError(state, msg));
+      updateState({ ...setManageIdentityFetchError(state, error instanceof Error ? error.message : String(error)), managePrivateKeyWif: result.privateKeyWif });
     }
   });
 
-  // Contract key upload — fetch identity then validate key sequentially
+  // Contract key upload — show loading, fetch identity + balance, validate key, update once
   wireKeyUpload('contract-key-upload', async (result) => {
-    // Store the private key in state immediately so it shows in the input
-    const initialState = {
-      ...setContractIdentityFetching(
-        setTargetIdentityId(state, result.identityId), result.identityId,
-      ),
+    updateState({
+      ...setContractIdentityFetching(setTargetIdentityId(state, result.identityId), result.identityId),
       contractPrivateKeyWif: result.privateKeyWif,
-    };
-    updateState(initialState);
+    });
     try {
       const keys = await getIdentityPublicKeys(result.identityId, state.network);
       let balance: number | undefined;
@@ -1113,19 +1110,18 @@ function setupEventListeners(container: HTMLElement) {
         const br = await sdk.identities.balanceAndRevision(result.identityId);
         balance = Number(br?.balance ?? 0n);
       } catch { /* best-effort */ }
-      // Use module-level state (updated by updateState above)
-      updateState(setContractIdentityFetched(state, keys, balance));
+      // Build final state: fetched + key WIF + validation — single updateState call
+      let finalState = setContractIdentityFetched(state, keys, balance);
+      finalState = { ...finalState, contractPrivateKeyWif: result.privateKeyWif };
       const match = findMatchingKeyIndex(result.privateKeyWif, keys, state.network);
       if (match && isPurposeAllowedForDpns(match.purpose) && isSecurityLevelAllowedForDpns(match.securityLevel)) {
-        updateState(setContractKeyValidated(state, match.keyId, result.privateKeyWif));
-      } else if (match) {
-        updateState(setContractKeyValidationError(state, `Key must be AUTHENTICATION with HIGH or CRITICAL level`));
+        finalState = setContractKeyValidated(finalState, match.keyId, result.privateKeyWif);
       } else {
-        updateState(setContractKeyValidationError(state, 'Key does not match any identity key'));
+        finalState = { ...finalState, contractKeyValidationError: match ? 'Key must be AUTHENTICATION with HIGH or CRITICAL level' : 'Key does not match any identity key' };
       }
+      updateState(finalState);
     } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      updateState(setContractIdentityFetchError(state, msg));
+      updateState({ ...setContractIdentityFetchError(state, error instanceof Error ? error.message : String(error)), contractPrivateKeyWif: result.privateKeyWif });
     }
   });
 
