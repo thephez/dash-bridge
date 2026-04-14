@@ -55,11 +55,10 @@ function renderIdSection(
  */
 function renderKeyUploadSection(inputId: string): string {
   return `
-    <div class="key-upload-section">
+    <div class="key-upload-section" id="${inputId}-dropzone">
       <label class="key-upload-label">
         <input type="file" id="${inputId}" accept=".json,application/json" class="key-upload-input" />
-        <span class="key-upload-btn">Upload Key Backup</span>
-        <span class="key-upload-hint">or enter manually below</span>
+        <span class="key-upload-btn">Drop key backup here or click to browse</span>
       </label>
       <p id="${inputId}-status" class="key-upload-status"></p>
     </div>

@@ -1015,10 +1015,10 @@ function setupEventListeners(container: HTMLElement) {
     onParsed: (result: { identityId: string; privateKeyWif: string }) => void,
   ) {
     const fileInput = container.querySelector<HTMLInputElement>(`#${inputId}`);
+    const dropzone = container.querySelector<HTMLElement>(`#${inputId}-dropzone`);
     if (!fileInput) return;
-    fileInput.addEventListener('change', () => {
-      const file = fileInput.files?.[0];
-      if (!file) return;
+
+    function handleFile(file: File) {
       const statusEl = container.querySelector(`#${inputId}-status`);
       const reader = new FileReader();
       reader.onload = () => {
@@ -1036,7 +1036,23 @@ function setupEventListeners(container: HTMLElement) {
         }
       };
       reader.readAsText(file);
+    }
+
+    fileInput.addEventListener('change', () => {
+      const file = fileInput.files?.[0];
+      if (file) handleFile(file);
     });
+
+    if (dropzone) {
+      dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('dragover'); });
+      dropzone.addEventListener('dragleave', () => { dropzone.classList.remove('dragover'); });
+      dropzone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropzone.classList.remove('dragover');
+        const file = e.dataTransfer?.files[0];
+        if (file) handleFile(file);
+      });
+    }
   }
 
   // DPNS key upload
