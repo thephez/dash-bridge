@@ -2186,7 +2186,8 @@ function renderContractEnterContractStep(state: BridgeState): HTMLElement {
 
     let depositHtml = '';
     if (isNew) {
-      const feeSatoshis = Math.ceil(estimate.totalCredits / 1000);
+      const CREDITS_PER_SATOSHI = 1000; // 1 Dash = 100M satoshis = 100B credits
+      const feeSatoshis = Math.ceil(estimate.totalCredits / CREDITS_PER_SATOSHI);
       const depositSatoshis = feeSatoshis + 10_000_000 + 1000;
       const depositDash = (depositSatoshis / 100_000_000).toFixed(4);
       depositHtml = `<div class="deposit-estimate"><strong>Deposit needed:</strong> ${depositDash} DASH <span class="deposit-detail">(${totalDash} fee + 0.1 buffer + tx fee)</span></div>`;

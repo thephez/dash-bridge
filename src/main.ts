@@ -1046,7 +1046,18 @@ function setupEventListeners(container: HTMLElement) {
 
       try {
         const keys = await getIdentityPublicKeys(identityId, state.network);
-        updateState(setContractIdentityFetched(state, keys));
+        // Also fetch balance for the existing identity credit check
+        let balance: number | undefined;
+        try {
+          const { EvoSDK } = await import('@dashevo/evo-sdk');
+          const sdk = state.network === 'mainnet' ? EvoSDK.mainnetTrusted() : EvoSDK.testnetTrusted();
+          await sdk.connect();
+          const result = await sdk.identities.balanceAndRevision(identityId);
+          balance = Number(result?.balance ?? 0n);
+        } catch {
+          // Balance fetch is best-effort; continue without it
+        }
+        updateState(setContractIdentityFetched(state, keys, balance));
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
         updateState(setContractIdentityFetchError(state, msg));

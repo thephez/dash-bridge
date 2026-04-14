@@ -46,7 +46,7 @@ export async function publishContract(
   console.log('Creating data contract...');
   const contractOptions = {
     ownerId: identityId,
-    identityNonce: 0n, // SDK assigns actual nonce during publish
+    identityNonce: 0n, // Placeholder: SDK's put_to_platform_and_wait_for_response fetches the real nonce
     schemas: documentSchemas as Record<string, object>,
     fullValidation: true,
     ...(tokens && Object.keys(tokens).length > 0 ? { tokens } : {}),

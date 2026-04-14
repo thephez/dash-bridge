@@ -1257,8 +1257,9 @@ export function setContractJson(
 export function setContractReview(state: BridgeState): BridgeState {
   let minimumDeposit = state.minimumDeposit;
   if (state.contractIdentitySource === 'new' && state.contractEstimate) {
+    const CREDITS_PER_SATOSHI = 1000; // 1 Dash = 100M satoshis = 100B credits
     const feeCredits = state.contractEstimate.totalCredits;
-    const feeSatoshis = Math.ceil(feeCredits / 1000);
+    const feeSatoshis = Math.ceil(feeCredits / CREDITS_PER_SATOSHI);
     const excessSatoshis = 10_000_000; // 0.1 Dash buffer
     const txFee = 1000;
     minimumDeposit = feeSatoshis + excessSatoshis + txFee;
