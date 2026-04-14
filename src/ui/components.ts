@@ -2340,7 +2340,7 @@ function renderContractEnterContractStep(state: BridgeState): HTMLElement {
   const reviewBtn = document.createElement('button');
   reviewBtn.id = 'contract-review-btn';
   reviewBtn.className = 'primary-btn';
-  reviewBtn.textContent = 'Review & Publish';
+  reviewBtn.textContent = 'Review';
   if (!canContinue) reviewBtn.setAttribute('disabled', 'true');
   navButtons.appendChild(reviewBtn);
 
@@ -2415,7 +2415,7 @@ function renderContractReviewStep(state: BridgeState): HTMLElement {
     const startBridgeBtn = document.createElement('button');
     startBridgeBtn.id = 'contract-start-bridge-btn';
     startBridgeBtn.className = 'primary-btn';
-    startBridgeBtn.textContent = 'Continue to Deposit';
+    startBridgeBtn.textContent = 'Continue';
     navButtons.appendChild(startBridgeBtn);
   } else {
     const publishBtn = document.createElement('button');
