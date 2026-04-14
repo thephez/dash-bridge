@@ -2366,23 +2366,23 @@ function renderContractReviewStep(state: BridgeState): HTMLElement {
   headline.textContent = 'Review Contract';
   div.appendChild(headline);
 
-  const uniqueCount = parsed.documentTypes.reduce((s, dt) => s + dt.indexes.filter(i => i.unique && !i.contested).length, 0);
-  const nonUniqueCount = parsed.documentTypes.reduce((s, dt) => s + dt.indexes.filter(i => !i.unique && !i.contested).length, 0);
-  const contestedCount = parsed.documentTypes.reduce((s, dt) => s + dt.indexes.filter(i => i.contested).length, 0);
+  const totalIndexes = parsed.documentTypes.reduce((s, dt) => s + dt.indexes.length, 0);
 
-  const summaryDiv = document.createElement('div');
-  summaryDiv.innerHTML = `
-    <div class="review-summary">
-      <ul>
-        <li>${parsed.documentTypes.length} document type${parsed.documentTypes.length !== 1 ? 's' : ''}</li>
-        <li>${uniqueCount + nonUniqueCount + contestedCount} indexes (${[uniqueCount && `${uniqueCount} unique`, nonUniqueCount && `${nonUniqueCount} non-unique`, contestedCount && `${contestedCount} contested`].filter(Boolean).join(', ') || 'none'})</li>
-        <li>${parsed.tokens.length} token${parsed.tokens.length !== 1 ? 's' : ''}</li>
-        <li>${parsed.keywords.length} keyword${parsed.keywords.length !== 1 ? 's' : ''}</li>
-      </ul>
+  const statsDiv = document.createElement('div');
+  statsDiv.className = 'contract-complete-summary';
+  statsDiv.innerHTML = `
+    <div class="complete-stats">
+      <div class="stat"><span class="stat-value">${parsed.documentTypes.length}</span><span class="stat-label">doc types</span></div>
+      <div class="stat"><span class="stat-value">${totalIndexes}</span><span class="stat-label">indexes</span></div>
+      <div class="stat"><span class="stat-value">${parsed.tokens.length}</span><span class="stat-label">tokens</span></div>
+      <div class="stat"><span class="stat-value">${estimate.totalDash.toFixed(2)}</span><span class="stat-label">Dash fee</span></div>
     </div>
-    ${renderFeeTable(estimate)}
   `;
-  div.appendChild(summaryDiv);
+  div.appendChild(statsDiv);
+
+  const feeDiv = document.createElement('div');
+  feeDiv.innerHTML = renderFeeTable(estimate);
+  div.appendChild(feeDiv);
 
   // Deposit / identity info callout
   if (isNew && !state.contractFromIdentityCreation) {
