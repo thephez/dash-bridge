@@ -17,7 +17,7 @@
     "@scure/bip32": "^2.0.1",
     "@scure/bip39": "^2.0.1",
     "bs58check": "^4.0.0",
-    "dash-contract-fee-estimator": "file:../dash-contract-fee-estimator",
+    "dash-contract-fee-estimator": "github:PastaPastaPasta/dash-contract-fee-estimator",
     "qrcode": "^1.5.4"
   },
   "devDependencies": {
