@@ -57,17 +57,14 @@ const PLATFORM_PUT_SETTINGS = {
   waitTimeoutMs: 45000,
 } as const;
 
-function createPlatformSdk(
-  network: 'testnet' | 'mainnet',
-  trusted: boolean
-): EvoSDK {
+function createPlatformSdk(network: 'testnet' | 'mainnet'): EvoSDK {
   const options = { settings: PLATFORM_REQUEST_SETTINGS };
 
   if (network === 'mainnet') {
-    return trusted ? EvoSDK.mainnetTrusted(options) : EvoSDK.mainnet(options);
+    return EvoSDK.mainnetTrusted(options);
   }
 
-  return trusted ? EvoSDK.testnetTrusted(options) : EvoSDK.testnet(options);
+  return EvoSDK.testnetTrusted(options);
 }
 
 /**
@@ -179,7 +176,7 @@ export async function registerIdentity(
   retryOptions?: RetryOptions
 ): Promise<{ identityId: string; balance: number; revision: number }> {
   // Initialize SDK for the target network
-  const sdk = createPlatformSdk(network, true);
+  const sdk = createPlatformSdk(network);
 
   // Connect to the network with retry
   console.log(`Connecting to ${network}...`);
@@ -259,7 +256,7 @@ export async function topUpIdentity(
   retryOptions?: RetryOptions
 ): Promise<{ success: boolean; balance?: number }> {
   // Initialize SDK for the target network (trusted mode required for identity fetch)
-  const sdk = createPlatformSdk(network, true);
+  const sdk = createPlatformSdk(network);
 
   // Connect to the network with retry
   console.log(`Connecting to ${network}...`);
@@ -336,7 +333,7 @@ export async function updateIdentity(
   retryOptions?: RetryOptions
 ): Promise<{ success: boolean; error?: string }> {
   // Initialize SDK for the target network (trusted mode required for identity fetch)
-  const sdk = createPlatformSdk(network, true);
+  const sdk = createPlatformSdk(network);
 
   console.log(`Connecting to ${network}...`);
   await withRetry(() => sdk.connect(), retryOptions);
@@ -438,7 +435,7 @@ export async function sendToPlatformAddress(
   network: 'testnet' | 'mainnet',
   retryOptions?: RetryOptions
 ): Promise<{ success: boolean; recipientAddress: string }> {
-  const sdk = createPlatformSdk(network, false);
+  const sdk = createPlatformSdk(network);
 
   console.log(`Connecting to ${network}...`);
   await withRetry(() => sdk.connect(), retryOptions);
