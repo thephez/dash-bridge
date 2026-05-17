@@ -151,7 +151,7 @@ export async function registerIdentity(
   assetLockProofData: AssetLockProofData,
   assetLockPrivateKeyWif: string,
   identityKeys: IdentityKeyConfig[],
-  network: 'testnet' | 'mainnet',
+  network: string,
   retryOptions?: RetryOptions
 ): Promise<{ identityId: string; balance: number; revision: number }> {
   return withConnectedPlatformSdk(network, async (sdk) => {
@@ -229,7 +229,7 @@ export async function topUpIdentity(
   identityId: string,
   assetLockProofData: AssetLockProofData,
   assetLockPrivateKeyWif: string,
-  network: 'testnet' | 'mainnet',
+  network: string,
   retryOptions?: RetryOptions
 ): Promise<{ success: boolean; balance?: number }> {
   return withConnectedPlatformSdk(network, async (sdk) => {
@@ -300,7 +300,7 @@ export async function updateIdentity(
   privateKeyWif: string,
   addPublicKeys: AddKeyConfig[],
   disablePublicKeyIds: number[],
-  network: 'testnet' | 'mainnet',
+  network: string,
   retryOptions?: RetryOptions
 ): Promise<{ success: boolean; error?: string }> {
   return withConnectedPlatformSdk(network, async (sdk) => {
@@ -398,7 +398,7 @@ export async function sendToPlatformAddress(
   recipientAddress: string,
   assetLockProofData: AssetLockProofData,
   assetLockPrivateKeyWif: string,
-  network: 'testnet' | 'mainnet',
+  network: string,
   retryOptions?: RetryOptions
 ): Promise<{ success: boolean; recipientAddress: string }> {
   return withConnectedPlatformSdk(network, async (sdk) => {

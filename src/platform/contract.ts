@@ -18,7 +18,7 @@ export async function publishContract(
   tokens: Record<string, unknown> | undefined,
   publicKeyId: number,
   privateKeyWif: string,
-  network: 'testnet' | 'mainnet',
+  network: string,
   retryOptions?: RetryOptions,
 ): Promise<{ contractId: string }> {
   return withConnectedPlatformSdk(network, async (sdk) => {
