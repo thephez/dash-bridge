@@ -1,6 +1,5 @@
 import { getNetwork, initNetworkRegistry, createCustomDevnetConfig, saveCustomDevnet, MAINNET, TESTNET } from './config.js';
 import { publicKeyToAddress, signTransaction, generateKeyPair } from './crypto/index.js';
-import { hash160 } from './crypto/hash.js';
 import { deriveAssetLockKeyPair } from './crypto/hd.js';
 import { createAssetLockTransaction, serializeTransaction } from './transaction/index.js';
 import { InsightClient } from './api/insight.js';
@@ -141,11 +140,11 @@ function showCustomDevnetModal(existing?: { name?: string; insightApiUrl?: strin
   overlay.innerHTML = `
     <div class="devnet-modal">
       <h2>Custom devnet</h2>
-      <label>Name <input id="d-name" placeholder="my-devnet" value="${existing?.name ?? ''}"></label>
-      <label>Insight API URL <input id="d-insight" placeholder="https://insight.my-devnet.example.com/insight-api" value="${existing?.insightApiUrl ?? ''}"></label>
-      <label>DAPI Addresses (one HTTPS URL per line) <textarea id="d-dapi" placeholder="https://1.2.3.4:1443&#10;https://5.6.7.8:1443">${existing?.dapiAddresses ?? ''}</textarea></label>
-      <label>JSON-RPC URL for IS locks (optional) <input id="d-rpc" placeholder="https://rpc.my-devnet.example.com" value="${existing?.rpcUrl ?? ''}"></label>
-      <label>Faucet URL (optional) <input id="d-faucet" value="${existing?.faucetBaseUrl ?? ''}"></label>
+      <label>Name <input id="d-name" placeholder="my-devnet"></label>
+      <label>Insight API URL <input id="d-insight" placeholder="https://insight.my-devnet.example.com/insight-api"></label>
+      <label>DAPI Addresses (one HTTPS URL per line) <textarea id="d-dapi" placeholder="https://1.2.3.4:1443&#10;https://5.6.7.8:1443"></textarea></label>
+      <label>JSON-RPC URL for IS locks (optional) <input id="d-rpc" placeholder="https://rpc.my-devnet.example.com"></label>
+      <label>Faucet URL (optional) <input id="d-faucet"></label>
       <div class="devnet-modal-actions">
         <button class="btn" id="d-cancel">Cancel</button>
         <button class="btn primary" id="d-save">Save & Connect</button>
@@ -153,6 +152,13 @@ function showCustomDevnetModal(existing?: { name?: string; insightApiUrl?: strin
     </div>
   `;
   document.body.appendChild(overlay);
+
+  // Populate via DOM properties to avoid XSS from stored values
+  (overlay.querySelector('#d-name') as HTMLInputElement).value = existing?.name ?? '';
+  (overlay.querySelector('#d-insight') as HTMLInputElement).value = existing?.insightApiUrl ?? '';
+  (overlay.querySelector('#d-dapi') as HTMLTextAreaElement).value = existing?.dapiAddresses ?? '';
+  (overlay.querySelector('#d-rpc') as HTMLInputElement).value = existing?.rpcUrl ?? '';
+  (overlay.querySelector('#d-faucet') as HTMLInputElement).value = existing?.faucetBaseUrl ?? '';
 
   overlay.querySelector('#d-cancel')!.addEventListener('click', () => overlay.remove());
   overlay.querySelector('#d-save')!.addEventListener('click', () => {
@@ -1562,9 +1568,8 @@ async function startTopUp() {
     console.log('Waiting for InstantSend lock...');
     const islockBytes = await islockService.waitForInstantSendLock(
       txid,
-      hash160(assetLockKeyPair.publicKey),
-      { txid: utxo.txid, vout: utxo.vout },
-      60000
+      assetLockKeyPair.publicKey,
+      utxo
     );
     console.log('InstantSend lock received:', islockBytes.length, 'bytes');
 
@@ -1670,9 +1675,8 @@ async function startSendToAddress() {
 
     const islockBytes = await islockService.waitForInstantSendLock(
       txid,
-      hash160(assetLockKeyPair.publicKey),
-      { txid: utxo.txid, vout: utxo.vout },
-      60000
+      assetLockKeyPair.publicKey,
+      utxo
     );
 
     const assetLockProof = buildInstantAssetLockProof(
@@ -1789,9 +1793,8 @@ async function startBridge() {
     console.log('Waiting for InstantSend lock...');
     const islockBytes = await islockService.waitForInstantSendLock(
       txid,
-      hash160(assetLockKeyPair.publicKey),
-      { txid: utxo.txid, vout: utxo.vout },
-      60000
+      assetLockKeyPair.publicKey,
+      utxo
     );
     console.log('InstantSend lock received:', islockBytes.length, 'bytes');
 
@@ -1904,9 +1907,8 @@ async function recheckDeposit() {
     console.log('Waiting for InstantSend lock...');
     const islockBytes = await islockService.waitForInstantSendLock(
       txid,
-      hash160(assetLockKeyPair.publicKey),
-      { txid: utxo.txid, vout: utxo.vout },
-      60000
+      assetLockKeyPair.publicKey,
+      utxo
     );
     console.log('InstantSend lock received:', islockBytes.length, 'bytes');
 

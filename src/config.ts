@@ -134,6 +134,7 @@ export function initNetworkRegistry(): void {
 export function getNetwork(name: string): NetworkConfig {
   const config = NETWORK_REGISTRY.get(name);
   if (config) return config;
+  console.warn(`Unknown network "${name}", falling back to testnet`);
   return TESTNET;
 }
 

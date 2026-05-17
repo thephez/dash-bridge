@@ -27,22 +27,18 @@ export class IslockService {
 
   async waitForInstantSendLock(
     txid: string,
-    pubKeyHash: Uint8Array,
-    outpoint: { txid: string; vout: number },
+    publicKey: Uint8Array,
+    utxo: { txid: string; vout: number },
     timeoutMs: number = 60000,
     onRetry?: RetryOptions['onRetry']
   ): Promise<Uint8Array> {
     if (!this.hasJsonRpc) {
-      return this.subscriptionClient.waitForInstantSendLock(
-        txid, pubKeyHash, outpoint, timeoutMs
-      );
+      return this.subscriptionClient.waitForInstantSendLock(txid, publicKey, utxo, timeoutMs);
     }
 
     // Race JSON-RPC polling against DAPI subscription — first success wins
     const jsonRpcPromise = this.jsonRpcClient.waitForInstantSendLock(txid, timeoutMs, onRetry);
-    const dapiPromise = this.subscriptionClient.waitForInstantSendLock(
-      txid, pubKeyHash, outpoint, timeoutMs
-    );
+    const dapiPromise = this.subscriptionClient.waitForInstantSendLock(txid, publicKey, utxo, timeoutMs);
 
     try {
       return await Promise.any([jsonRpcPromise, dapiPromise]);
