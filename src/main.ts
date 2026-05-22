@@ -1,9 +1,9 @@
-import { getNetwork, MAINNET, TESTNET } from './config.js';
+import { getNetwork, initNetworkRegistry, createCustomDevnetConfig, saveCustomDevnet, MAINNET, TESTNET } from './config.js';
 import { publicKeyToAddress, signTransaction, generateKeyPair } from './crypto/index.js';
 import { deriveAssetLockKeyPair } from './crypto/hd.js';
 import { createAssetLockTransaction, serializeTransaction } from './transaction/index.js';
 import { InsightClient } from './api/insight.js';
-import { DAPIClient } from './api/dapi.js';
+import { IslockService } from './api/islock.js';
 import { buildInstantAssetLockProof } from './proof/index.js';
 import { registerIdentity, topUpIdentity, updateIdentity, sendToPlatformAddress, AddKeyConfig } from './platform/index.js';
 import { bech32m } from '@scure/base';
@@ -109,7 +109,7 @@ import {
   generateIdentityKey,
 } from './crypto/keys.js';
 import { publishContract, extractDocumentSchemas } from './platform/contract.js';
-import { getIdentityBalanceAndRevision } from './platform/client.js';
+import { getIdentityBalanceAndRevision, disconnectPlatformSdk } from './platform/client.js';
 import { estimateContractFee, parseContractJson } from 'dash-contract-fee-estimator';
 import type { KeyType, KeyPurpose, SecurityLevel, ManageNewKeyConfig } from './types.js';
 import type { BridgeState } from './types.js';
@@ -117,16 +117,87 @@ import type { BridgeState } from './types.js';
 // Global state
 let state: BridgeState;
 let insightClient: InsightClient;
-let dapiClient: DAPIClient;
+let islockService: IslockService;
+
+function initClients(network: string): void {
+  const config = getNetwork(network);
+  insightClient = new InsightClient(config);
+  islockService = new IslockService({
+    network,
+    rpcUrl: config.rpcUrl,
+    dapiAddresses: config.dapiAddresses,
+  });
+}
+
+function switchNetwork(network: string): void {
+  updateState(setNetwork(state, network));
+  initClients(network);
+}
+
+function showCustomDevnetModal(existing?: { name?: string; insightApiUrl?: string; dapiAddresses?: string; rpcUrl?: string; faucetBaseUrl?: string }): void {
+  const overlay = document.createElement('div');
+  overlay.className = 'devnet-modal-overlay';
+  overlay.innerHTML = `
+    <div class="devnet-modal">
+      <h2>Custom devnet</h2>
+      <label>Name <input id="d-name" placeholder="my-devnet"></label>
+      <label>Insight API URL <input id="d-insight" placeholder="https://insight.my-devnet.example.com/insight-api"></label>
+      <label>DAPI Addresses (one HTTPS URL per line) <textarea id="d-dapi" placeholder="https://1.2.3.4:1443&#10;https://5.6.7.8:1443"></textarea></label>
+      <label>JSON-RPC URL for IS locks (optional) <input id="d-rpc" placeholder="https://rpc.my-devnet.example.com"></label>
+      <label>Faucet URL (optional) <input id="d-faucet"></label>
+      <div class="devnet-modal-actions">
+        <button class="secondary-btn" id="d-cancel">Cancel</button>
+        <button class="primary-btn" id="d-save">Save &amp; Connect</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  // Populate via DOM properties to avoid XSS from stored values
+  (overlay.querySelector('#d-name') as HTMLInputElement).value = existing?.name ?? '';
+  (overlay.querySelector('#d-insight') as HTMLInputElement).value = existing?.insightApiUrl ?? '';
+  (overlay.querySelector('#d-dapi') as HTMLTextAreaElement).value = existing?.dapiAddresses ?? '';
+  (overlay.querySelector('#d-rpc') as HTMLInputElement).value = existing?.rpcUrl ?? '';
+  (overlay.querySelector('#d-faucet') as HTMLInputElement).value = existing?.faucetBaseUrl ?? '';
+
+  overlay.querySelector('#d-cancel')!.addEventListener('click', () => overlay.remove());
+  overlay.querySelector('#d-save')!.addEventListener('click', () => {
+    const name = (overlay.querySelector('#d-name') as HTMLInputElement).value.trim();
+    const insightApiUrl = (overlay.querySelector('#d-insight') as HTMLInputElement).value.trim();
+    const dapiRaw = (overlay.querySelector('#d-dapi') as HTMLTextAreaElement).value.trim();
+    const rpcUrl = (overlay.querySelector('#d-rpc') as HTMLInputElement).value.trim() || undefined;
+    const faucetBaseUrl = (overlay.querySelector('#d-faucet') as HTMLInputElement).value.trim() || undefined;
+    const dapiAddresses = dapiRaw.split('\n').map((s) => s.trim()).filter(Boolean);
+
+    if (!name || !insightApiUrl || dapiAddresses.length === 0) {
+      alert('Name, Insight API URL, and at least one DAPI address are required');
+      return;
+    }
+
+    const config = createCustomDevnetConfig({ name, insightApiUrl, dapiAddresses, rpcUrl, faucetBaseUrl });
+    saveCustomDevnet(config);
+    disconnectPlatformSdk(name);
+    overlay.remove();
+    switchNetwork(name);
+  });
+}
 
 /**
  * Initialize the application
  */
 function init() {
+  initNetworkRegistry();
+
+  // Close devnet dropdown on outside click (registered once)
+  document.addEventListener('click', () => {
+    const menu = document.getElementById('devnet-menu');
+    if (menu) menu.style.display = 'none';
+  });
+
   const urlParams = new URLSearchParams(window.location.search);
 
   // Infer network from ?address= param prefix, falling back to ?network= param
-  let network: 'testnet' | 'mainnet' = urlParams.get('network') === 'mainnet' ? 'mainnet' : 'testnet';
+  let network: string = urlParams.get('network') ?? 'testnet';
   const addressParam = urlParams.get('address')?.trim();
   if (addressParam) {
     try {
@@ -140,8 +211,7 @@ function init() {
 
   // Initialize state
   state = createInitialState(network);
-  insightClient = new InsightClient(getNetwork(network));
-  dapiClient = new DAPIClient({ network });
+  initClients(network);
 
   // Deep-link: ?address=<bech32m> opens send-to-address mode with address pre-filled
   if (addressParam && validatePlatformAddress(addressParam, network)) {
@@ -230,15 +300,36 @@ function updateState(newState: BridgeState) {
  * Setup event listeners
  */
 function setupEventListeners(container: HTMLElement) {
-  // Network selector buttons
-  container.querySelectorAll('.network-btn').forEach((btn) => {
+  // Network selector buttons (testnet, mainnet)
+  container.querySelectorAll('.network-btn[data-network]').forEach((btn) => {
     btn.addEventListener('click', () => {
-      const network = (btn as HTMLElement).dataset.network as 'testnet' | 'mainnet';
+      const network = (btn as HTMLElement).dataset.network;
       if (network && network !== state.network) {
-        // Update state and reinitialize clients for new network
-        updateState(setNetwork(state, network));
-        insightClient = new InsightClient(getNetwork(network));
-        dapiClient = new DAPIClient({ network });
+        switchNetwork(network);
+      }
+    });
+  });
+
+  // Devnet dropdown toggle
+  const devnetToggle = container.querySelector('#devnet-toggle');
+  const devnetMenu = container.querySelector('#devnet-menu') as HTMLElement | null;
+  if (devnetToggle && devnetMenu) {
+    devnetToggle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      devnetMenu.style.display = devnetMenu.style.display === 'none' ? 'flex' : 'none';
+    });
+  }
+
+  // Devnet option buttons
+  container.querySelectorAll('.devnet-option').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const network = (btn as HTMLElement).dataset.network;
+      if (network === '__custom__') {
+        showCustomDevnetModal();
+        return;
+      }
+      if (network && network !== state.network) {
+        switchNetwork(network);
       }
     });
   });
@@ -1378,7 +1469,7 @@ function parseKeyBackup(json: unknown): { identityId: string; privateKeyWif: str
 /**
  * Validate platform address format (bech32m, correct network prefix)
  */
-function validatePlatformAddress(address: string, network: 'testnet' | 'mainnet'): boolean {
+function validatePlatformAddress(address: string, network: string): boolean {
   const trimmed = address.trim();
   if (!trimmed) return false;
 
@@ -1475,7 +1566,11 @@ async function startTopUp() {
     updateState(setStep(state, 'waiting_islock'));
 
     console.log('Waiting for InstantSend lock...');
-    const islockBytes = await dapiClient.waitForInstantSendLock(txid, 60000);
+    const islockBytes = await islockService.waitForInstantSendLock(
+      txid,
+      assetLockKeyPair.publicKey,
+      utxo
+    );
     console.log('InstantSend lock received:', islockBytes.length, 'bytes');
 
     const assetLockProof = buildInstantAssetLockProof(
@@ -1578,7 +1673,11 @@ async function startSendToAddress() {
     // Step 6: Wait for InstantSend lock
     updateState(setStep(state, 'waiting_islock'));
 
-    const islockBytes = await dapiClient.waitForInstantSendLock(txid, 60000);
+    const islockBytes = await islockService.waitForInstantSendLock(
+      txid,
+      assetLockKeyPair.publicKey,
+      utxo
+    );
 
     const assetLockProof = buildInstantAssetLockProof(
       signedTxBytes,
@@ -1692,7 +1791,11 @@ async function startBridge() {
     updateState(setStep(state, 'waiting_islock'));
 
     console.log('Waiting for InstantSend lock...');
-    const islockBytes = await dapiClient.waitForInstantSendLock(txid, 60000);
+    const islockBytes = await islockService.waitForInstantSendLock(
+      txid,
+      assetLockKeyPair.publicKey,
+      utxo
+    );
     console.log('InstantSend lock received:', islockBytes.length, 'bytes');
 
     const assetLockProof = buildInstantAssetLockProof(
@@ -1802,7 +1905,11 @@ async function recheckDeposit() {
     updateState(setStep(state, 'waiting_islock'));
 
     console.log('Waiting for InstantSend lock...');
-    const islockBytes = await dapiClient.waitForInstantSendLock(txid, 60000);
+    const islockBytes = await islockService.waitForInstantSendLock(
+      txid,
+      assetLockKeyPair.publicKey,
+      utxo
+    );
     console.log('InstantSend lock received:', islockBytes.length, 'bytes');
 
     const assetLockProof = buildInstantAssetLockProof(

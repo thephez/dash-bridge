@@ -12,7 +12,7 @@ import {
  */
 export async function getIdentityPublicKeys(
   identityId: string,
-  network: 'testnet' | 'mainnet',
+  network: string,
   retryOptions?: RetryOptions
 ): Promise<IdentityPublicKeyInfo[]> {
   console.log(`Fetching identity keys for ${identityId} on ${network}...`);
@@ -190,7 +190,7 @@ export function createEmptyUsernameEntry(): DpnsUsernameEntry {
  */
 export async function checkUsernameAvailability(
   label: string,
-  network: 'testnet' | 'mainnet',
+  network: string,
   retryOptions?: RetryOptions
 ): Promise<boolean> {
   return withConnectedPlatformSdk(
@@ -205,7 +205,7 @@ export async function checkUsernameAvailability(
  */
 export async function checkMultipleAvailability(
   entries: DpnsUsernameEntry[],
-  network: 'testnet' | 'mainnet',
+  network: string,
   retryOptions?: RetryOptions
 ): Promise<DpnsUsernameEntry[]> {
   return withConnectedPlatformSdk(network, async (sdk) => {
@@ -254,7 +254,7 @@ export async function registerDpnsName(
   identityId: string,
   publicKeyId: number,
   privateKeyWif: string,
-  network: 'testnet' | 'mainnet',
+  network: string,
   onPreorder?: () => void,
   retryOptions?: RetryOptions
 ): Promise<{ success: boolean; isContested: boolean; error?: string }> {
@@ -310,7 +310,7 @@ export async function registerMultipleNames(
   identityId: string,
   publicKeyId: number,
   privateKeyWif: string,
-  network: 'testnet' | 'mainnet',
+  network: string,
   onProgress?: (current: number, total: number, label: string) => void
 ): Promise<DpnsRegistrationResult[]> {
   const results: DpnsRegistrationResult[] = [];

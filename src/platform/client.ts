@@ -1,7 +1,8 @@
 import { EvoSDK } from '@dashevo/evo-sdk';
 import { withRetry, type RetryOptions } from '../utils/retry.js';
+import { getNetwork } from '../config.js';
 
-export type PlatformNetwork = 'testnet' | 'mainnet';
+export type PlatformNetwork = string;
 
 export interface PlatformIdentityKeyRecord {
   keyId: number;
@@ -27,13 +28,23 @@ export const PLATFORM_PUT_SETTINGS = {
 
 const PLATFORM_OPERATION_TIMEOUT_MS = 45000;
 
-const sdkCache = new Map<PlatformNetwork, EvoSDK>();
+const sdkCache = new Map<string, EvoSDK>();
 
 function createPlatformSdk(network: PlatformNetwork): EvoSDK {
   const options = { settings: PLATFORM_REQUEST_SETTINGS };
+  const config = getNetwork(network);
 
-  if (network === 'mainnet') {
+  if (config.type === 'mainnet') {
     return EvoSDK.mainnetTrusted(options);
+  }
+
+  if (config.type === 'devnet' && config.dapiAddresses?.length) {
+    return new EvoSDK({
+      addresses: config.dapiAddresses,
+      network: 'testnet',
+      trusted: true,
+      ...options,
+    });
   }
 
   return EvoSDK.testnetTrusted(options);
