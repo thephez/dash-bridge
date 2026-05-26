@@ -94,6 +94,26 @@ function isConnectionError(error: unknown): boolean {
   );
 }
 
+/**
+ * Fetch the current chain-locked tip height from Platform.
+ * Returned as a regular `number` because the WASM-bound field is already a
+ * `number | undefined`.
+ */
+export async function getCoreChainLockedHeight(
+  network: PlatformNetwork,
+  retryOptions?: RetryOptions
+): Promise<number | undefined> {
+  return withConnectedPlatformSdk(
+    network,
+    async (sdk) => {
+      const status = await withRetry(() => sdk.system.status(), retryOptions);
+      const height = status.chain.core_chain_locked_height;
+      return typeof height === 'number' ? height : undefined;
+    },
+    retryOptions
+  );
+}
+
 export async function withConnectedPlatformSdk<T>(
   network: PlatformNetwork,
   callback: (sdk: EvoSDK) => Promise<T>,

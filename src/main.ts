@@ -4,8 +4,10 @@ import { deriveAssetLockKeyPair } from './crypto/hd.js';
 import { createAssetLockTransaction, serializeTransaction, calculateTxId } from './transaction/index.js';
 import { InsightClient } from './api/insight.js';
 import { IslockService } from './api/islock.js';
-import { buildInstantAssetLockProof } from './proof/index.js';
+import { DAPIClient } from './api/dapi.js';
+import { buildInstantAssetLockProof, buildChainAssetLockProof } from './proof/index.js';
 import { registerIdentity, topUpIdentity, updateIdentity, sendToPlatformAddress, AddKeyConfig } from './platform/index.js';
+import { getCoreChainLockedHeight } from './platform/client.js';
 import { bech32m } from '@scure/base';
 import { privateKeyToWif, bytesToHex } from './utils/index.js';
 import {
@@ -24,6 +26,9 @@ import {
   setInstantLockReceived,
   setIdentityRegistered,
   setError,
+  setChainlockFallbackStarted,
+  setChainlockProgress,
+  setChainlockProofReady,
   toError,
   ErrorCodes,
   setDepositTimedOut,
@@ -482,6 +487,22 @@ function setupEventListeners(container: HTMLElement) {
   if (retryBtn) {
     retryBtn.addEventListener('click', () => {
       updateState(createInitialState(state.network));
+    });
+  }
+
+  // Chainlock fallback button (offered on the error screen when applicable)
+  const chainlockFallbackBtn = container.querySelector('#chainlock-fallback-btn');
+  if (chainlockFallbackBtn) {
+    chainlockFallbackBtn.addEventListener('click', () => {
+      startChainlockFallback();
+    });
+  }
+
+  // Cancel button shown during the waiting_chainlock step
+  const chainlockCancelBtn = container.querySelector('#chainlock-cancel-btn');
+  if (chainlockCancelBtn) {
+    chainlockCancelBtn.addEventListener('click', () => {
+      cancelChainlockFallback();
     });
   }
 
@@ -1565,7 +1586,7 @@ async function startTopUp() {
     const signedTxHex = bytesToHex(signedTxBytes);
     const txid = calculateTxId(signedTx);
 
-    updateState(setTransactionSigned(state, signedTxHex));
+    updateState(setTransactionSigned(state, signedTxHex, signedTxBytes));
 
     // Step 5: Open IS lock subscription BEFORE broadcasting — dashd does not
     // replay historical IS locks, so we must be listening before the lock
@@ -1682,7 +1703,7 @@ async function startSendToAddress() {
     const signedTxHex = bytesToHex(signedTxBytes);
     const txid = calculateTxId(signedTx);
 
-    updateState(setTransactionSigned(state, signedTxHex));
+    updateState(setTransactionSigned(state, signedTxHex, signedTxBytes));
 
     // Step 5: Subscribe for IS lock BEFORE broadcasting (see flow #1 for why).
     updateState(setStep(state, 'waiting_islock'));
@@ -1803,7 +1824,7 @@ async function startBridge() {
     const signedTxHex = bytesToHex(signedTxBytes);
     const txid = calculateTxId(signedTx);
 
-    updateState(setTransactionSigned(state, signedTxHex));
+    updateState(setTransactionSigned(state, signedTxHex, signedTxBytes));
 
     // Step 5: Subscribe for IS lock BEFORE broadcasting (see flow #1 for why).
     updateState(setStep(state, 'waiting_islock'));
@@ -1922,7 +1943,7 @@ async function recheckDeposit() {
     const signedTxHex = bytesToHex(signedTxBytes);
     const txid = calculateTxId(signedTx);
 
-    updateState(setTransactionSigned(state, signedTxHex));
+    updateState(setTransactionSigned(state, signedTxHex, signedTxBytes));
 
     // Step 5: Subscribe for IS lock BEFORE broadcasting (see flow #1 for why).
     updateState(setStep(state, 'waiting_islock'));
@@ -1998,6 +2019,196 @@ async function recheckDeposit() {
   } catch (error) {
     console.error('Bridge error:', error);
     updateState(setError(state, toError(error)));
+  }
+}
+
+// ============================================================================
+// ChainLock Fallback
+// ============================================================================
+
+/**
+ * Active poller controller for the chainlock fallback. Module-scoped so the
+ * cancel button can abort it without threading it through render state.
+ */
+let chainlockController: AbortController | null = null;
+
+/**
+ * Run the mode-appropriate Platform submission with the supplied proof.
+ * Shared by the chainlock fallback path; mirrors the per-mode tail of the
+ * happy-path bridge flows (see startBridge / startTopUp / startSendToAddress).
+ */
+async function runPlatformSubmission(
+  assetLockProof: import('./types.js').AssetLockProofData,
+  assetLockPrivateKeyWif: string
+): Promise<void> {
+  if (state.mode === 'topup') {
+    updateState(setStep(state, 'topping_up'));
+    await topUpIdentity(
+      state.targetIdentityId!,
+      assetLockProof,
+      assetLockPrivateKeyWif,
+      state.network
+    );
+    updateState(setTopUpComplete(state));
+    return;
+  }
+
+  if (state.mode === 'send_to_address') {
+    updateState(setStep(state, 'sending_to_address'));
+    await sendToPlatformAddress(
+      state.recipientPlatformAddress!,
+      assetLockProof,
+      assetLockPrivateKeyWif,
+      state.network
+    );
+    updateState(setSendToAddressComplete(state));
+    return;
+  }
+
+  if (state.mode === 'create') {
+    updateState(setStep(state, 'registering_identity'));
+    const result = await registerIdentity(
+      assetLockProof,
+      assetLockPrivateKeyWif,
+      state.identityKeys,
+      state.network
+    );
+    updateState(setIdentityRegistered(state, result.identityId));
+    downloadKeyBackup(state);
+
+    if (await autoPublishContractIfNeeded(result.identityId)) return;
+    return;
+  }
+
+  throw new Error(`runPlatformSubmission: unexpected mode '${state.mode}'`);
+}
+
+/**
+ * Cancel an in-flight chainlock fallback and return to the prior error screen
+ * (with a generic CHAINLOCK error code so the user understands what happened).
+ */
+function cancelChainlockFallback(): void {
+  if (!chainlockController) return;
+  chainlockController.abort();
+  chainlockController = null;
+  updateState(setError(state, new Error('Chainlock fallback cancelled'), ErrorCodes.CHAINLOCK));
+}
+
+/**
+ * Begin the chainlock fallback flow: poll Insight for the asset-lock tx's
+ * confirming block, poll Platform (with DAPI JSON-RPC as backup) for the
+ * chain-locked tip, and once `coreChainLockedHeight >= blockHeight` build a
+ * chain asset lock proof and resubmit the original Platform operation.
+ */
+async function startChainlockFallback(): Promise<void> {
+  if (!state.txid || !state.assetLockKeyPair) {
+    console.error('Chainlock fallback unavailable: missing txid or asset lock key pair');
+    return;
+  }
+
+  if (chainlockController) {
+    chainlockController.abort();
+  }
+  chainlockController = new AbortController();
+  const signal = chainlockController.signal;
+
+  updateState(setChainlockFallbackStarted(state));
+
+  const network = getNetwork(state.network);
+  const txid = state.txid;
+  const dapiClient = new DAPIClient({ network: state.network, rpcUrl: network.rpcUrl });
+
+  // Poll #1: asset lock tx block height via Insight.
+  const blockHeightPromise = insightClient.waitForBlockHeight(
+    txid,
+    5000,
+    signal,
+    (info) => {
+      if (info.blockheight !== undefined) {
+        updateState(setChainlockProgress(state, { blockHeight: info.blockheight }));
+      }
+    }
+  );
+
+  // Poll #2: Platform chain-locked tip (primary) and DAPI JSON-RPC (backup).
+  const chainLockPoll = (async (): Promise<void> => {
+    while (!signal.aborted) {
+      let height: number | undefined;
+      try {
+        height = await getCoreChainLockedHeight(state.network);
+      } catch (error) {
+        console.warn('getCoreChainLockedHeight failed:', error);
+      }
+      if (height === undefined) {
+        try {
+          const fallback = await dapiClient.getBestChainLock();
+          if (fallback) height = fallback.height;
+        } catch (error) {
+          console.warn('getBestChainLock fallback failed:', error);
+        }
+      }
+      if (height !== undefined) {
+        updateState(setChainlockProgress(state, { chainLockedHeight: height }));
+      }
+
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, 5000);
+        signal.addEventListener('abort', () => {
+          clearTimeout(timer);
+          resolve();
+        }, { once: true });
+      });
+    }
+  })();
+  chainLockPoll.catch(() => {});
+
+  try {
+    const blockHeight = await blockHeightPromise;
+
+    // Wait until the Platform-reported chain lock buries the confirming block.
+    while (!signal.aborted) {
+      const chainLockedHeight = state.coreChainLockedHeight;
+      if (chainLockedHeight !== undefined && chainLockedHeight >= blockHeight) {
+        break;
+      }
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, 2000);
+        signal.addEventListener('abort', () => {
+          clearTimeout(timer);
+          resolve();
+        }, { once: true });
+      });
+    }
+
+    if (signal.aborted) {
+      return;
+    }
+
+    const chainLockedHeight = state.coreChainLockedHeight!;
+    const proof = buildChainAssetLockProof(txid, 0, chainLockedHeight);
+    updateState(setChainlockProofReady(state, proof));
+
+    // Stop the chain-locked-height poller now that we've armed the proof.
+    // The blockHeightPromise has already resolved.
+    chainlockController.abort();
+    chainlockController = null;
+
+    const assetLockPrivateKeyWif = privateKeyToWif(
+      state.assetLockKeyPair.privateKey,
+      network
+    );
+    await runPlatformSubmission(proof, assetLockPrivateKeyWif);
+  } catch (error) {
+    if (signal.aborted) {
+      // Already transitioned to error via cancelChainlockFallback.
+      return;
+    }
+    console.error('Chainlock fallback error:', error);
+    updateState(setError(state, toError(error), ErrorCodes.CHAINLOCK));
+  } finally {
+    if (chainlockController?.signal === signal) {
+      chainlockController = null;
+    }
   }
 }
 

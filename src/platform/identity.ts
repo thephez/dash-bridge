@@ -4,6 +4,7 @@ import {
   IdentityPublicKey,
   IdentityPublicKeyInCreation,
   IdentitySigner,
+  OutPoint,
   PrivateKey,
   PlatformAddressSigner,
 } from '@dashevo/evo-sdk';
@@ -11,6 +12,13 @@ import { sha256 } from '@noble/hashes/sha256';
 import { ripemd160 } from '@noble/hashes/ripemd160';
 import type { PublicKeyInfo, IdentityKeyConfig, AssetLockProofData } from '../types.js';
 import { withRetry, type RetryOptions } from '../utils/retry.js';
+import { bytesToHex } from '../utils/hex.js';
+import { describeIslock, diffIslockInputsAgainstTx } from '../utils/islock-debug.js';
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+import dashcoreLib from '@dashevo/dashcore-lib';
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const DashcoreTransaction = (dashcoreLib as any).Transaction;
 import {
   PLATFORM_PUT_SETTINGS,
   fetchIdentityWithSdk,
@@ -24,6 +32,101 @@ import {
  */
 function hash160(data: Uint8Array): Uint8Array {
   return ripemd160(sha256(data));
+}
+
+/**
+ * Build the typed SDK AssetLockProof from our discriminated proof data.
+ */
+function toSdkProof(data: AssetLockProofData): AssetLockProof {
+  if (data.type === 'instant') {
+    return AssetLockProof.createInstantAssetLockProof(
+      data.instantLockBytes,
+      data.transactionBytes,
+      data.outputIndex
+    );
+  }
+  return AssetLockProof.createChainAssetLockProof(
+    data.coreChainLockedHeight,
+    new OutPoint(data.txid, data.vout)
+  );
+}
+
+/**
+ * Dump everything we are about to feed into the platform SDK for an
+ * asset-lock-proof-based call. Used to debug "Instant lock proof signature
+ * is invalid or wasn't created recently" errors from Platform.
+ */
+function logAssetLockProofForDebug(
+  proofData: AssetLockProofData,
+  network: string,
+  context: string
+): void {
+  if (proofData.type === 'chain') {
+    console.log('[islock-debug] Asset lock proof debug dump (chain):', {
+      context,
+      network,
+      type: 'chain',
+      coreChainLockedHeight: proofData.coreChainLockedHeight,
+      txid: proofData.txid,
+      vout: proofData.vout,
+      timestampIso: new Date().toISOString(),
+    });
+    return;
+  }
+  const islockDebug = describeIslock(proofData.instantLockBytes, `proof:${context}`);
+  const txHex = bytesToHex(proofData.transactionBytes);
+
+  let txInputs: Array<{ txid: string; vout: number }> = [];
+  let parsedTxTxid: string | undefined;
+  let parsedTxVersion: number | undefined;
+  let parsedTxType: number | undefined;
+  let outputCount: number | undefined;
+  try {
+    // Parse the asset lock tx with dashcore-lib so we can compare its inputs
+    // and txid against the IS lock we just got back.
+    const tx = new DashcoreTransaction(txHex);
+    parsedTxTxid = tx.hash || tx.id;
+    parsedTxVersion = tx.version;
+    parsedTxType = tx.type;
+    outputCount = tx.outputs?.length;
+    txInputs = (tx.inputs || []).map((i: { prevTxId: Buffer; outputIndex: number }) => ({
+      txid: Buffer.from(i.prevTxId).toString('hex'),
+      vout: i.outputIndex,
+    }));
+  } catch (err) {
+    console.warn('[islock-debug] Failed to parse asset lock tx for debug:', err);
+  }
+
+  const inputDiff = islockDebug.parsed
+    ? diffIslockInputsAgainstTx(islockDebug.parsed.inputs, txInputs)
+    : { matches: false, details: ['islock could not be parsed'] };
+
+  const txidMatches =
+    islockDebug.parsed && parsedTxTxid
+      ? islockDebug.parsed.txid === parsedTxTxid
+      : undefined;
+
+  console.log('[islock-debug] Asset lock proof debug dump:', {
+    context,
+    network,
+    outputIndex: proofData.outputIndex,
+    transactionBytesLength: proofData.transactionBytes.length,
+    transactionHex: txHex,
+    parsedTx: {
+      txid: parsedTxTxid,
+      version: parsedTxVersion,
+      type: parsedTxType,
+      outputCount,
+      inputs: txInputs,
+    },
+    islock: islockDebug,
+    consistency: {
+      txidMatches,
+      inputsMatch: inputDiff.matches,
+      inputDiffDetails: inputDiff.details,
+    },
+    timestampIso: new Date().toISOString(),
+  });
 }
 
 function hexToBytes(hex: string): Uint8Array {
@@ -154,14 +257,11 @@ export async function registerIdentity(
   network: string,
   retryOptions?: RetryOptions
 ): Promise<{ identityId: string; balance: number; revision: number }> {
+  logAssetLockProofForDebug(assetLockProofData, network, 'registerIdentity');
   return withConnectedPlatformSdk(network, async (sdk) => {
-    // Build typed AssetLockProof from raw components
-    const proof = AssetLockProof.createInstantAssetLockProof(
-      assetLockProofData.instantLockBytes,
-      assetLockProofData.transactionBytes,
-      assetLockProofData.outputIndex
-    );
+    const proof = toSdkProof(assetLockProofData);
     const identityId = proof.createIdentityId().toString();
+    console.log('[islock-debug] Derived identityId from proof:', identityId);
     const identity = new Identity(identityId);
     const signer = new IdentitySigner();
 
@@ -232,17 +332,14 @@ export async function topUpIdentity(
   network: string,
   retryOptions?: RetryOptions
 ): Promise<{ success: boolean; balance?: number }> {
+  logAssetLockProofForDebug(assetLockProofData, network, `topUpIdentity:${identityId}`);
   return withConnectedPlatformSdk(network, async (sdk) => {
     const identity = await fetchIdentityWithSdk(sdk, identityId, retryOptions);
     if (!identity) {
       throw new Error(`Identity not found: ${identityId}`);
     }
 
-    const proof = AssetLockProof.createInstantAssetLockProof(
-      assetLockProofData.instantLockBytes,
-      assetLockProofData.transactionBytes,
-      assetLockProofData.outputIndex
-    );
+    const proof = toSdkProof(assetLockProofData);
     const assetLockPrivateKey = PrivateKey.fromWIF(assetLockPrivateKeyWif);
 
     console.log('Topping up identity:', identityId);
@@ -401,13 +498,13 @@ export async function sendToPlatformAddress(
   network: string,
   retryOptions?: RetryOptions
 ): Promise<{ success: boolean; recipientAddress: string }> {
+  logAssetLockProofForDebug(
+    assetLockProofData,
+    network,
+    `sendToPlatformAddress:${recipientAddress}`
+  );
   return withConnectedPlatformSdk(network, async (sdk) => {
-    // Build typed AssetLockProof from raw components
-    const assetLockProof = AssetLockProof.createInstantAssetLockProof(
-      assetLockProofData.instantLockBytes,
-      assetLockProofData.transactionBytes,
-      assetLockProofData.outputIndex
-    );
+    const assetLockProof = toSdkProof(assetLockProofData);
 
     // Build the asset lock private key
     const assetLockPrivateKey = PrivateKey.fromWIF(assetLockPrivateKeyWif);

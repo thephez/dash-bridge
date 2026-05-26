@@ -173,6 +173,7 @@ export function render(state: BridgeState, container: HTMLElement): void {
     case 'signing_transaction':
     case 'broadcasting':
     case 'waiting_islock':
+    case 'waiting_chainlock':
     case 'registering_identity':
     case 'topping_up':
     case 'sending_to_address':
@@ -785,23 +786,28 @@ function renderProcessingStep(state: BridgeState): HTMLElement {
   div.className = 'processing-step';
   const isTopUp = state.mode === 'topup';
   const isSendToAddress = state.mode === 'send_to_address';
+  const isChainlock = state.step === 'waiting_chainlock';
 
   // Headline
   const headline = document.createElement('h2');
   headline.className = 'processing-headline';
-  headline.textContent = isSendToAddress
-    ? 'Sending to platform address'
-    : isTopUp ? 'Processing top-up' : 'Creating your identity';
+  headline.textContent = isChainlock
+    ? 'Waiting for chain lock'
+    : isSendToAddress
+      ? 'Sending to platform address'
+      : isTopUp ? 'Processing top-up' : 'Creating your identity';
   div.appendChild(headline);
 
   // Subtitle
   const subtitle = document.createElement('p');
   subtitle.className = 'processing-subtitle';
-  subtitle.textContent = isSendToAddress
-    ? 'Sending credits to the platform address.'
-    : isTopUp
-      ? 'Adding credits to your identity on Dash Platform.'
-      : 'Registering your identity on Dash Platform. This may take a moment.';
+  subtitle.textContent = isChainlock
+    ? 'Falling back from InstantSend. Polling for confirmation and chain lock — this can take a few minutes on mainnet/testnet.'
+    : isSendToAddress
+      ? 'Sending credits to the platform address.'
+      : isTopUp
+        ? 'Adding credits to your identity on Dash Platform.'
+        : 'Registering your identity on Dash Platform. This may take a moment.';
   div.appendChild(subtitle);
 
   const spinner = document.createElement('div');
@@ -813,6 +819,30 @@ function renderProcessingStep(state: BridgeState): HTMLElement {
   status.className = 'processing-status';
   status.textContent = 'Waiting for confirmation...';
   div.appendChild(status);
+
+  if (isChainlock) {
+    const progress = document.createElement('div');
+    progress.className = 'processing-details';
+    const block = state.assetLockTxBlockHeight;
+    const clh = state.coreChainLockedHeight;
+    progress.innerHTML = `
+      <div class="detail-row">
+        <label>Asset lock tx</label>
+        <span>${block !== undefined ? `Confirmed at block ${block}` : 'Waiting for confirmation…'}</span>
+      </div>
+      <div class="detail-row">
+        <label>Chain locked through</label>
+        <span>${clh !== undefined ? `Block ${clh}${block !== undefined ? ` (${clh >= block ? 'ready' : `${block - clh} block${block - clh === 1 ? '' : 's'} to go`})` : ''}` : 'Waiting…'}</span>
+      </div>
+    `;
+    div.appendChild(progress);
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.id = 'chainlock-cancel-btn';
+    cancelBtn.className = 'secondary-btn';
+    cancelBtn.textContent = 'Cancel';
+    div.appendChild(cancelBtn);
+  }
 
   // Transaction details card
   const detailsCard = document.createElement('div');
@@ -1036,6 +1066,15 @@ function renderErrorStep(state: BridgeState): HTMLElement {
     </details>
   ` : '';
 
+  const chainlockFallbackHtml = state.chainlockFallbackAvailable
+    ? `
+      <div class="error-fallback">
+        <p class="error-fallback-hint">InstantSend didn't go through. You can wait for a chain lock and try again with a chain-based proof instead.</p>
+        <button id="chainlock-fallback-btn" class="primary-btn">Use chain lock proof instead</button>
+      </div>
+    `
+    : '';
+
   div.innerHTML = `
     <div class="error-icon">❌</div>
     <h2>Error</h2>
@@ -1044,6 +1083,7 @@ function renderErrorStep(state: BridgeState): HTMLElement {
     ${failedStepHtml}
     <p class="error-message">${escapeHtml(errorMessage)}</p>
     ${techDetailsHtml}
+    ${chainlockFallbackHtml}
     <div class="error-actions">
       <button id="retry-btn" class="secondary-btn">Try Again</button>
       <button id="copy-error-btn" class="secondary-btn">Copy Error Details</button>
