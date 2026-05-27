@@ -7,6 +7,9 @@ import {
   OutPoint,
   PrivateKey,
   PlatformAddressSigner,
+  type PurposeLike,
+  type SecurityLevelLike,
+  type KeyTypeLike,
 } from '@dashevo/evo-sdk';
 import { sha256 } from '@noble/hashes/sha256';
 import { ripemd160 } from '@noble/hashes/ripemd160';
@@ -272,9 +275,9 @@ export async function registerIdentity(
 
       const publicKey = new IdentityPublicKey({
         keyId: key.id,
-        purpose: key.purpose,
-        securityLevel: key.securityLevel,
-        keyType: key.keyType,
+        purpose: key.purpose.toLowerCase() as PurposeLike,
+        securityLevel: key.securityLevel.toLowerCase() as SecurityLevelLike,
+        keyType: key.keyType.toLowerCase() as KeyTypeLike,
         isReadOnly: false,
         data: keyBytes,
       });
@@ -322,8 +325,11 @@ export async function registerIdentity(
  * - No identity keys needed
  * - Just needs identityId, proof, and asset lock private key
  *
- * Note: Uses trusted mode because topUp needs to fetch the identity first,
- * which requires quorum verification that's only available in trusted mode.
+ * Note: trusted/untrusted mode is decided per-network in
+ * createPlatformSdk (mainnet/testnet = trusted; devnet = untrusted).
+ * On devnet this currently has limited utility because the WASM SDK can't
+ * bootstrap a quorum context for an arbitrary devnet — fetching an existing
+ * identity to top up may fail before the asset lock is even consumed.
  */
 export async function topUpIdentity(
   identityId: string,
@@ -389,8 +395,10 @@ export interface AddKeyConfig {
  * - privateKeyWif must be for a MASTER or CRITICAL level key
  * - Cannot disable the key used for signing
  *
- * Note: Uses trusted mode because update needs to fetch the identity first,
- * which requires quorum verification that's only available in trusted mode.
+ * Note: trusted/untrusted mode is decided per-network in
+ * createPlatformSdk (mainnet/testnet = trusted; devnet = untrusted).
+ * On devnet, fetching the existing identity may fail because the WASM SDK
+ * has no bootstrapped quorum context to verify the response proofs against.
  */
 export async function updateIdentity(
   identityId: string,
@@ -439,9 +447,9 @@ export async function updateIdentity(
 
         return new IdentityPublicKeyInCreation({
           keyId: maxKeyId + index + 1,
-          purpose: key.purpose,
-          securityLevel: key.securityLevel,
-          keyType: key.keyType,
+          purpose: key.purpose.toLowerCase() as PurposeLike,
+          securityLevel: key.securityLevel.toLowerCase() as SecurityLevelLike,
+          keyType: key.keyType.toLowerCase() as KeyTypeLike,
           isReadOnly: false,
           data: keyDataBytes,
         });
