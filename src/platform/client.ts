@@ -39,7 +39,7 @@ function createPlatformSdk(network: PlatformNetwork): EvoSDK {
   }
 
   if (config.type === 'devnet') {
-    const devnetName = devnetNameForSdk(config);
+    const devnetName = devnetNameForSdk(config.name);
 
     if (config.useTrustedContext) {
       // Trusted devnet mode (SDK >= 3.1.0-dev.7): the SDK prefetches a

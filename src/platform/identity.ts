@@ -468,12 +468,8 @@ export interface AddKeyConfig {
  * - privateKeyWif must be for a MASTER or CRITICAL level key
  * - Cannot disable the key used for signing
  *
- * Note: trusted/untrusted mode is decided per-network in
- * createPlatformSdk. Mainnet/testnet are always trusted; devnets are
- * trusted when `useTrustedContext` is set on the network config (SDK >=
- * 3.1.0-dev.7). On a non-trusted devnet, fetching the existing identity
- * may fail because there is no quorum context to verify the response
- * proofs against.
+ * Note: like `topUpIdentity`, this fetches the existing identity via the
+ * SDK and so requires a quorum context — works on trusted devnets only.
  */
 export async function updateIdentity(
   identityId: string,

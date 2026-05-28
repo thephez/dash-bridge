@@ -27,10 +27,8 @@ export interface NetworkConfig {
  * factories. Our config names are conventionally `devnet-<name>`; the SDK
  * derives the default trusted-quorum URL from the bare name.
  */
-export function devnetNameForSdk(config: NetworkConfig): string {
-  return config.name.startsWith('devnet-')
-    ? config.name.slice('devnet-'.length)
-    : config.name;
+export function devnetNameForSdk(name: string): string {
+  return name.startsWith('devnet-') ? name.slice('devnet-'.length) : name;
 }
 
 export const TESTNET: NetworkConfig = {
