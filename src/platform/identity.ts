@@ -26,9 +26,11 @@ import {
   PLATFORM_PUT_SETTINGS,
   fetchIdentityWithSdk,
   getIdentityBalanceAndRevisionWithSdk,
+  waitForIdentityByPolling,
   withConnectedPlatformSdk,
   withPlatformOperationTimeout,
 } from './client.js';
+import { getNetwork } from '../config.js';
 
 /**
  * Compute hash160 (RIPEMD160(SHA256(data))) of a buffer
@@ -287,7 +289,77 @@ export async function registerIdentity(
 
     const assetLockPrivateKey = PrivateKey.fromWIF(assetLockPrivateKeyWif);
 
+    // On a NON-TRUSTED devnet, the SDK has no quorum context, so
+    // `identities.create` cannot complete its proof-verifying wait phase:
+    // every retry of `wait_for_state_transition_result` fails inside
+    // Drive::verify_state_transition_was_executed_with_proof, and the SDK
+    // burns minutes cycling through masternodes. The fix: force the wait
+    // phase to fail fast (`retries: 0`), let the broadcast succeed, then
+    // poll `getIdentityUnproved` until the identity appears on-chain.
+    // Trusted devnets (SDK >= 3.1.0-dev.7, `useTrustedContext: true`) take
+    // the normal wait path same as mainnet/testnet.
+    const networkConfig = getNetwork(network);
+    const isNonTrustedDevnet =
+      networkConfig.type === 'devnet' && !networkConfig.useTrustedContext;
+
     console.log('Creating identity with', identityKeys.length, 'keys...');
+    if (isNonTrustedDevnet) {
+      // Do NOT pass `waitTimeoutMs` here: rs-sdk implements that via
+      // `tokio::time::timeout`, and the WASM build of the SDK ships without
+      // a working time backend, so any path that touches `wait_timeout`
+      // panics with "time not implemented on this platform" (Rust std's
+      // `unsupported/time.rs`). Instead, we cap the wait phase by setting
+      // `retries: 0` (one attempt only — Tenderdash's server-side
+      // wait_for_state_transition_result returns within ~30s on its own
+      // deadline) and rely on the outer `withPlatformOperationTimeout`
+      // (45s) as the wall-clock safety net.
+      const broadcastSettings = {
+        ...PLATFORM_PUT_SETTINGS,
+        retries: 0,
+      } as const;
+      let sdkError: unknown;
+      try {
+        await withPlatformOperationTimeout(
+          sdk.identities.create({
+            identity,
+            assetLockProof: proof,
+            assetLockPrivateKey,
+            signer,
+            settings: broadcastSettings,
+          }),
+          'broadcasting identity create state transition'
+        );
+        console.log('Identity create wait phase completed without error');
+      } catch (error) {
+        // Expected on non-trusted devnet: the wait phase cannot verify
+        // proofs without a quorum context (WasmContext::get_quorum_public_key
+        // returns an error). The broadcast itself may have succeeded — we
+        // cannot tell from the error alone, so we fall through to polling.
+        // If the broadcast also failed, polling will time out and the
+        // original error is surfaced in the timeout message for diagnosis.
+        sdkError = error;
+        console.warn(
+          '[devnet] identities.create returned an error (expected when ' +
+            'proof verification is unavailable); falling back to polling. Error:',
+          error instanceof Error ? error.message : error
+        );
+      }
+
+      console.log('Polling for identity', identityId, 'via getIdentityUnproved...');
+      const appeared = await waitForIdentityByPolling(sdk, identityId, 60000, 2000);
+      if (!appeared) {
+        const sdkErrorMsg =
+          sdkError instanceof Error ? sdkError.message : String(sdkError ?? 'no SDK error');
+        throw new Error(
+          `Identity ${identityId} did not appear on Platform within 60s polling window. ` +
+            `The broadcast may have failed (was not just the wait phase). ` +
+            `Original SDK error: ${sdkErrorMsg}`
+        );
+      }
+      console.log('Identity created (observed via polling):', identityId);
+      return { identityId, balance: 0, revision: 0 };
+    }
+
     await withPlatformOperationTimeout(
       withRetry(
         () => sdk.identities.create({
@@ -326,10 +398,11 @@ export async function registerIdentity(
  * - Just needs identityId, proof, and asset lock private key
  *
  * Note: trusted/untrusted mode is decided per-network in
- * createPlatformSdk (mainnet/testnet = trusted; devnet = untrusted).
- * On devnet this currently has limited utility because the WASM SDK can't
- * bootstrap a quorum context for an arbitrary devnet — fetching an existing
- * identity to top up may fail before the asset lock is even consumed.
+ * createPlatformSdk. Mainnet/testnet are always trusted; devnets are
+ * trusted when `useTrustedContext` is set on the network config (SDK >=
+ * 3.1.0-dev.7). On a non-trusted devnet, fetching the existing identity
+ * may fail because there is no quorum context to verify the response
+ * proofs against — top up requires trusted-context mode there.
  */
 export async function topUpIdentity(
   identityId: string,
@@ -396,9 +469,11 @@ export interface AddKeyConfig {
  * - Cannot disable the key used for signing
  *
  * Note: trusted/untrusted mode is decided per-network in
- * createPlatformSdk (mainnet/testnet = trusted; devnet = untrusted).
- * On devnet, fetching the existing identity may fail because the WASM SDK
- * has no bootstrapped quorum context to verify the response proofs against.
+ * createPlatformSdk. Mainnet/testnet are always trusted; devnets are
+ * trusted when `useTrustedContext` is set on the network config (SDK >=
+ * 3.1.0-dev.7). On a non-trusted devnet, fetching the existing identity
+ * may fail because there is no quorum context to verify the response
+ * proofs against.
  */
 export async function updateIdentity(
   identityId: string,

@@ -142,7 +142,7 @@ function switchNetwork(network: string): void {
   initClients(network);
 }
 
-function showCustomDevnetModal(existing?: { name?: string; insightApiUrl?: string; dapiAddresses?: string; rpcUrl?: string; faucetBaseUrl?: string }): void {
+function showCustomDevnetModal(existing?: { name?: string; insightApiUrl?: string; dapiAddresses?: string; rpcUrl?: string; faucetBaseUrl?: string; useTrustedContext?: boolean; trustedQuorumUrl?: string }): void {
   const overlay = document.createElement('div');
   overlay.className = 'devnet-modal-overlay';
   overlay.innerHTML = `
@@ -153,6 +153,8 @@ function showCustomDevnetModal(existing?: { name?: string; insightApiUrl?: strin
       <label>DAPI Addresses (one HTTPS URL per line) <textarea id="d-dapi" placeholder="https://1.2.3.4:1443&#10;https://5.6.7.8:1443"></textarea></label>
       <label>JSON-RPC URL for IS locks (optional) <input id="d-rpc" placeholder="https://rpc.my-devnet.example.com"></label>
       <label>Faucet URL (optional) <input id="d-faucet"></label>
+      <label><input type="checkbox" id="d-trusted"> Use trusted context (verify proofs; required for top-up &amp; identity update)</label>
+      <label>Quorum context URL (optional override) <input id="d-quorum-url" placeholder="https://quorums.my-devnet.networks.dash.org"></label>
       <div class="devnet-modal-actions">
         <button class="secondary-btn" id="d-cancel">Cancel</button>
         <button class="primary-btn" id="d-save">Save &amp; Connect</button>
@@ -167,6 +169,8 @@ function showCustomDevnetModal(existing?: { name?: string; insightApiUrl?: strin
   (overlay.querySelector('#d-dapi') as HTMLTextAreaElement).value = existing?.dapiAddresses ?? '';
   (overlay.querySelector('#d-rpc') as HTMLInputElement).value = existing?.rpcUrl ?? '';
   (overlay.querySelector('#d-faucet') as HTMLInputElement).value = existing?.faucetBaseUrl ?? '';
+  (overlay.querySelector('#d-trusted') as HTMLInputElement).checked = existing?.useTrustedContext ?? false;
+  (overlay.querySelector('#d-quorum-url') as HTMLInputElement).value = existing?.trustedQuorumUrl ?? '';
 
   overlay.querySelector('#d-cancel')!.addEventListener('click', () => overlay.remove());
   overlay.querySelector('#d-save')!.addEventListener('click', () => {
@@ -175,6 +179,8 @@ function showCustomDevnetModal(existing?: { name?: string; insightApiUrl?: strin
     const dapiRaw = (overlay.querySelector('#d-dapi') as HTMLTextAreaElement).value.trim();
     const rpcUrl = (overlay.querySelector('#d-rpc') as HTMLInputElement).value.trim() || undefined;
     const faucetBaseUrl = (overlay.querySelector('#d-faucet') as HTMLInputElement).value.trim() || undefined;
+    const useTrustedContext = (overlay.querySelector('#d-trusted') as HTMLInputElement).checked || undefined;
+    const trustedQuorumUrl = (overlay.querySelector('#d-quorum-url') as HTMLInputElement).value.trim() || undefined;
     const dapiAddresses = dapiRaw.split('\n').map((s) => s.trim()).filter(Boolean);
 
     if (!name || !insightApiUrl || dapiAddresses.length === 0) {
@@ -187,7 +193,15 @@ function showCustomDevnetModal(existing?: { name?: string; insightApiUrl?: strin
       return;
     }
 
-    const config = createCustomDevnetConfig({ name, insightApiUrl, dapiAddresses, rpcUrl, faucetBaseUrl });
+    const config = createCustomDevnetConfig({
+      name,
+      insightApiUrl,
+      dapiAddresses,
+      rpcUrl,
+      faucetBaseUrl,
+      useTrustedContext,
+      trustedQuorumUrl,
+    });
     saveCustomDevnet(config);
     disconnectPlatformSdk(name);
     overlay.remove();
@@ -1766,8 +1780,8 @@ async function startSendToAddress() {
  *
  * The rs-sdk has matching logic (`Identity::wait_for_response`) that
  * auto-fetches the identity on `AlreadyExists`, but the wasm-sdk doesn't,
- * and on devnet we can't fetch via the SDK anyway (untrusted mode + no
- * bootstrapped quorum context = TransportNoAvailableAddresses).
+ * and on a NON-TRUSTED devnet we can't fetch via the SDK anyway (no
+ * quorum context = TransportNoAvailableAddresses).
  *
  * Strategy: catch the AlreadyExists family of errors and treat them as
  * success, deriving the identity ID from the asset lock proof (it's
@@ -2208,8 +2222,11 @@ async function startChainlockFallback(): Promise<void> {
   // Poll #2: chain-locked Dash Core height. DAPI JSON-RPC
   // `getbestchainlock` first (when an rpcUrl is configured), then direct
   // gRPC `platform.getStatus()` via @dashevo/dapi-client. We intentionally
-  // do NOT use `sdk.system.status()` — in trusted mode it returns
-  // testnet-cached values on devnets.
+  // do NOT use `sdk.system.status()`: in pre-dev.7 builds the testnet
+  // trusted context returned testnet-cached values on devnets. SDK
+  // 3.1.0-dev.7 fixes this with per-devnet trusted contexts, but the
+  // direct dapi-client call works uniformly across trusted and
+  // non-trusted devnets, so we keep it.
   const chainLockPoll = (async (): Promise<void> => {
     while (!signal.aborted) {
       let height: number | undefined;

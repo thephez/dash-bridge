@@ -1,6 +1,6 @@
 import { EvoSDK } from '@dashevo/evo-sdk';
 import { withRetry, type RetryOptions } from '../utils/retry.js';
-import { getNetwork } from '../config.js';
+import { devnetNameForSdk, getNetwork } from '../config.js';
 
 export type PlatformNetwork = string;
 
@@ -39,30 +39,35 @@ function createPlatformSdk(network: PlatformNetwork): EvoSDK {
   }
 
   if (config.type === 'devnet') {
+    const devnetName = devnetNameForSdk(config);
+
+    if (config.useTrustedContext) {
+      // Trusted devnet mode (SDK >= 3.1.0-dev.7): the SDK prefetches a
+      // devnet-specific quorum context, which provides both the quorum keys
+      // for proof verification and the masternode address list. When
+      // `trustedQuorumUrl` is omitted the SDK defaults to
+      // `https://quorums.<devnetName>.networks.dash.org`.
+      return EvoSDK.devnetTrusted(devnetName, {
+        quorumUrl: config.trustedQuorumUrl,
+        ...options,
+      });
+    }
+
     if (!config.dapiAddresses?.length) {
       throw new Error(
-        `Devnet "${config.name}" is missing dapiAddresses; cannot create Platform SDK`
+        `Devnet "${config.name}" is missing dapiAddresses; non-trusted ` +
+          `devnet mode requires explicit addresses`
       );
     }
-    // EXPLICITLY trusted: false on devnets.
-    //
-    // trusted: true makes the WASM SDK attach the testnet "trusted context"
-    // (quorum keys, chain checkpoints) which it then uses to verify proofs.
-    // That context's address list overrides our custom devnet addresses, so
-    // queries get routed to the public testnet DAPI nodes instead of the
-    // devnet masternodes — at best returning wrong data, at worst silently
-    // succeeding against testnet while looking like it works against devnet.
-    // We verified this empirically against paloma: any apparent success in
-    // trusted mode is a coincidence of state, not a real query.
-    //
-    // For the chainlock fallback we read core_chain_locked_height via
-    // @dashevo/dapi-client.platform.getStatus() directly against the
-    // devnet's dapiAddresses — see
+
+    // Non-trusted devnet mode: explicit addresses, no quorum context, so
+    // proof-bearing queries fail (use *Unproved variants and polling — see
+    // waitForIdentityByPolling). For the chainlock fallback we read
+    // core_chain_locked_height via @dashevo/dapi-client.platform.getStatus()
+    // directly against the devnet's dapiAddresses — see
     // DAPISubscriptionClient.getCoreChainLockedHeight in api/dapi-subscription.ts.
-    return new EvoSDK({
+    return EvoSDK.devnet(devnetName, {
       addresses: config.dapiAddresses,
-      network: 'testnet',
-      trusted: false,
       ...options,
     });
   }
@@ -154,6 +159,44 @@ export async function fetchIdentityWithSdk(
   retryOptions?: RetryOptions
 ) {
   return withRetry(() => sdk.identities.fetch(identityId), retryOptions);
+}
+
+/**
+ * Fetch an identity WITHOUT proof verification (`prove: false`). Required on
+ * non-trusted devnets, where the SDK has no quorum context, so any
+ * proof-verifying read would fail. On trusted devnets (and mainnet/testnet)
+ * the regular `fetchIdentityWithSdk` is preferred.
+ */
+export async function fetchIdentityUnprovedWithSdk(
+  sdk: EvoSDK,
+  identityId: string
+) {
+  return sdk.identities.fetchUnproved(identityId);
+}
+
+/**
+ * Poll `fetchUnproved(identityId)` until the identity exists on Platform or
+ * the deadline expires. Used as a fallback after a "broadcast-only" identity
+ * registration on non-trusted devnets, where `sdk.identities.create()` cannot
+ * complete its proof-verifying wait phase.
+ */
+export async function waitForIdentityByPolling(
+  sdk: EvoSDK,
+  identityId: string,
+  timeoutMs: number,
+  intervalMs: number = 2000
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const identity = await sdk.identities.fetchUnproved(identityId);
+      if (identity) return true;
+    } catch {
+      // Not found yet (or transient transport error) — keep polling.
+    }
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  return false;
 }
 
 export async function fetchIdentity(
